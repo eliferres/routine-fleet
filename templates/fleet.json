@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "timezone": "UTC",
+  "grace_minutes": 30,
+  "watchdog": "fleet-watchdog",
+  "routines": [
+    {
+      "name": "daily-brief",
+      "schedule": "30 7 * * *",
+      "runs": "routines/daily-brief.md",
+      "command": ["bin/run-prompt.sh", "{path}"],
+      "owner": "you@example.com"
+    },
+    {
+      "name": "weekly-audit",
+      "schedule": "0 6 * * 1",
+      "runs": "routines/weekly-audit.md",
+      "command": ["bin/run-prompt.sh", "{path}"],
+      "owner": "you@example.com",
+      "grace_minutes": 120
+    },
+    {
+      "name": "fleet-watchdog",
+      "schedule": "0 9 * * *",
+      "runs": "routines/fleet-watchdog.md",
+      "command": ["bin/run-prompt.sh", "{path}"],
+      "owner": "you@example.com"
+    }
+  ]
+}

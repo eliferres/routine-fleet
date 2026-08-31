@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "timezone": "UTC",
+  "grace_minutes": 30,
+  "watchdog": "fleet-watchdog",
+  "routines": [
+    {
+      "name": "daily-standup-brief",
+      "schedule": "0 8 * * *",
+      "runs": "routines/daily-standup-brief.md",
+      "command": ["bin/echo-runner.sh", "{path}"],
+      "owner": "ops@example.com"
+    },
+    {
+      "name": "nightly-link-sweep",
+      "schedule": "0 2 * * *",
+      "runs": "routines/nightly-link-sweep.md",
+      "command": ["bin/echo-runner.sh", "{path}"],
+      "owner": "ops@example.com"
+    },
+    {
+      "name": "weekly-access-audit",
+      "schedule": "0 6 * * 1",
+      "runs": "routines/weekly-access-audit.md",
+      "command": ["bin/echo-runner.sh", "{path}"],
+      "owner": "security@example.com"
+    },
+    {
+      "name": "fleet-watchdog",
+      "schedule": "30 9 * * *",
+      "runs": "routines/fleet-watchdog.md",
+      "command": ["bin/echo-runner.sh", "{path}"],
+      "owner": "ops@example.com"
+    }
+  ]
+}
