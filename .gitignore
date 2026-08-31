@@ -1,0 +1,9 @@
+__pycache__/
+.DS_Store
+
+# Run state is machine-local: markers and the run log belong to the box that
+# ran them, never to the roster's history. demo/state/run-log.jsonl is the one
+# tracked exception — it is canned history the walkthrough reads.
+/state/
+templates/state/
+demo/state/markers/
