@@ -10,6 +10,6 @@ Welcome things:
 Ground rules: `fleet.py` stays standard-library only and stays one file, the
 roster stays plain JSON, and every change keeps
 `python3 -m unittest discover -s tests` green. Tests use real rosters in temp
-directories and injected timestamps — no mocks, and nothing that needs cron
+directories and injected timestamps: no mocks, and nothing that needs cron
 installed. Structural proposals belong in an issue before a PR; the pattern is
 deliberately small, and most feature ideas are better as forks.
