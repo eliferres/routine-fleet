@@ -1,0 +1,17 @@
+[
+  {
+    "cmd": "python3 fleet.py --roster demo/fleet.json --state \"$FLEET_GUARD\" --now 2026-03-02T08:05 run daily-standup-brief",
+    "out": "[daily-standup-brief] slot 2026-03-02T08:00 — would execute /path/to/checkout/demo/routines/daily-standup-brief.md",
+    "status": 0
+  },
+  {
+    "cmd": "python3 fleet.py --roster demo/fleet.json --state \"$FLEET_GUARD\" --now 2026-03-02T08:47 run daily-standup-brief",
+    "out": "!!! TWIN REFUSED: daily-standup-brief already ran in slot 2026-03-02T08:00.\n    Refusing to run it twice. Clear /var/folders/tc/mmzcz8wx4456lf0ld34kpn3r0000gn/T/tmppd8exa1a/markers/daily-standup-brief/2026-03-02T08:00.marker to force a re-run.",
+    "status": 1
+  },
+  {
+    "cmd": "python3 fleet.py --roster demo/fleet.json --state \"$FLEET_STATE\" --now 2026-03-02T09:00 report",
+    "out": "FLEET REPORT  2026-03-02 09:00  4 routines  roster fleet.json\n!!! ATTENTION: 2 of 4 routines flagged\n\n  OK         daily-standup-brief      slot 2026-03-02 08:00\n  MISSED     nightly-link-sweep       slot 2026-03-02 02:00  no run recorded\n  ROTTED     weekly-access-audit      routines/weekly-access-audit.md is missing\n  OK         fleet-watchdog           slot 2026-03-01 09:30  (watchdog, checked last)",
+    "status": 1
+  }
+]
