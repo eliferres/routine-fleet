@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # A slot search walks back one minute at a time. Two months covers every
 # monthly cadence; past that a routine has bigger problems than a late run.
@@ -35,7 +36,7 @@ class FleetError(Exception):
 
 # ---------- cron ----------
 
-def _parse_field(raw, label, lo, hi):
+def _parse_field(raw: str, label: str, lo: int, hi: int) -> Set[int]:
     values = set()
     for item in raw.split(","):
         if not item:
@@ -61,7 +62,7 @@ def _parse_field(raw, label, lo, hi):
     return values
 
 
-def _as_int(raw, label, lo, hi):
+def _as_int(raw: str, label: str, lo: int, hi: int) -> int:
     if not raw.isdigit():
         raise FleetError("Expected `%s` to be a number, got `%s`" % (label, raw))
     value = int(raw)
@@ -73,7 +74,7 @@ def _as_int(raw, label, lo, hi):
 class Cron(object):
     """A five-field cron expression, matched minute by minute."""
 
-    def __init__(self, expr):
+    def __init__(self, expr: str) -> None:
         parts = expr.split()
         if len(parts) != 5:
             raise FleetError("Expected a 5-field cron expression, got `%s` (%d fields)"
@@ -87,7 +88,7 @@ class Cron(object):
         self.dom_bound = parts[2] != "*"
         self.dow_bound = parts[4] != "*"
 
-    def matches(self, when):
+    def matches(self, when: datetime) -> bool:
         if when.minute not in self.minute or when.hour not in self.hour:
             return False
         if when.month not in self.month:
@@ -103,7 +104,7 @@ class Cron(object):
             return dow_ok
         return True
 
-    def previous_slot(self, when):
+    def previous_slot(self, when: datetime) -> Optional[datetime]:
         """The latest scheduled minute at or before `when`, or None if the
         expression has not fired inside the lookback window."""
         cursor = when.replace(second=0, microsecond=0)
@@ -117,7 +118,7 @@ class Cron(object):
 # ---------- roster ----------
 
 class Routine(object):
-    def __init__(self, entry, roster_dir, default_grace):
+    def __init__(self, entry: Dict[str, Any], roster_dir: str, default_grace: int) -> None:
         self.name = entry["name"]
         self.schedule = entry["schedule"]
         self.cron = Cron(self.schedule)
@@ -127,7 +128,7 @@ class Routine(object):
         self.command = entry.get("command")
         self.grace = entry.get("grace_minutes", default_grace)
 
-    def argv(self):
+    def argv(self) -> List[str]:
         """The command the guard executes. `{path}` expands to the resolved
         prompt/script path, so a roster names one runner for many prompts."""
         template = self.command or [self.runs_path]
@@ -135,7 +136,7 @@ class Routine(object):
 
 
 class Roster(object):
-    def __init__(self, path):
+    def __init__(self, path: str) -> None:
         self.path = os.path.abspath(path)
         self.dir = os.path.dirname(self.path)
         try:
@@ -152,21 +153,21 @@ class Roster(object):
         grace = raw.get("grace_minutes", DEFAULT_GRACE_MINUTES)
         self.routines = [Routine(e, self.dir, grace) for e in raw["routines"]]
 
-    def get(self, name):
+    def get(self, name: str) -> "Routine":
         for routine in self.routines:
             if routine.name == name:
                 return routine
         raise FleetError("`%s` is not in the roster; a routine not in the roster "
                          "does not exist" % name)
 
-    def ordered(self):
+    def ordered(self) -> List["Routine"]:
         """Roster order, except the watchdog, which checks itself last."""
         body = [r for r in self.routines if r.name != self.watchdog]
         tail = [r for r in self.routines if r.name == self.watchdog]
         return body + tail
 
 
-def validate_roster(raw):
+def validate_roster(raw: Any) -> List[str]:
     """Structure only. Missing prompt files are rot, and rot is the watchdog's job."""
     problems = []
     if not isinstance(raw, dict):
@@ -222,14 +223,14 @@ SLOT_FMT = "%Y-%m-%dT%H:%M"
 
 
 class State(object):
-    def __init__(self, directory):
+    def __init__(self, directory: str) -> None:
         self.dir = os.path.abspath(directory)
         self.log_path = os.path.join(self.dir, "run-log.jsonl")
 
-    def marker_path(self, name, slot):
+    def marker_path(self, name: str, slot: datetime) -> str:
         return os.path.join(self.dir, "markers", name, slot.strftime(SLOT_FMT) + ".marker")
 
-    def claim(self, name, slot, stamp):
+    def claim(self, name: str, slot: datetime, stamp: str) -> bool:
         """Create the slot marker, or report the slot is already taken. The
         exclusive create is the whole twin defence: two schedulers racing the
         same minute cannot both win it."""
@@ -246,7 +247,7 @@ class State(object):
             marker.write(stamp + "\n")
         return True
 
-    def append(self, record):
+    def append(self, record: Dict[str, Any]) -> None:
         try:
             os.makedirs(self.dir)
         except OSError:
@@ -254,7 +255,7 @@ class State(object):
         with open(self.log_path, "a") as log:
             log.write(json.dumps(record, sort_keys=True) + "\n")
 
-    def events(self):
+    def events(self) -> Tuple[List[Dict[str, Any]], int]:
         """Parsed log records, newest last. Unreadable lines are counted, never
         guessed at: a corrupt log must not silently look like a healthy one."""
         records, damaged = [], 0
@@ -279,7 +280,7 @@ class State(object):
 
 # ---------- run: the guard ----------
 
-def cmd_run(args, roster, state):
+def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
     routine = roster.get(args.name)
     now = args.now
     slot = routine.cron.previous_slot(now)
@@ -316,7 +317,7 @@ def cmd_run(args, roster, state):
 FLAGGED = ("MISSED", "FAILED", "INCOMPLETE", "ROTTED", "NO-SLOT")
 
 
-def assess(routine, now, by_slot, twins):
+def assess(routine: Routine, now: datetime, by_slot: Dict[str, Dict[str, Any]], twins: int) -> Tuple[str, str]:
     if not os.path.exists(routine.runs_path):
         return "ROTTED", "%s is missing" % routine.runs
     due = routine.cron.previous_slot(now - timedelta(minutes=routine.grace))
@@ -336,7 +337,7 @@ def assess(routine, now, by_slot, twins):
     return "OK", detail
 
 
-def cmd_report(args, roster, state):
+def cmd_report(args: argparse.Namespace, roster: Roster, state: State) -> int:
     records, damaged = state.events()
     now = args.now
     lines, flagged, twin_total = [], 0, 0
@@ -376,7 +377,7 @@ def cmd_report(args, roster, state):
 
 # ---------- parity ----------
 
-def read_crontab(source):
+def read_crontab(source: Optional[str]) -> Dict[str, str]:
     """Fleet-managed crontab lines carry a `# fleet:<name>` tag. Untagged lines
     belong to someone else and are none of the roster's business."""
     text = _read_source(source, ["crontab", "-l"])
@@ -391,7 +392,7 @@ def read_crontab(source):
     return found
 
 
-def read_json_export(source):
+def read_json_export(source: Optional[str]) -> Dict[str, str]:
     """A scheduler export: a list of {name, schedule} objects, or a name->schedule map."""
     try:
         data = json.loads(_read_source(source, None))
@@ -413,7 +414,7 @@ def read_json_export(source):
                      % type(data).__name__)
 
 
-def _read_source(source, fallback_argv):
+def _read_source(source: Optional[str], fallback_argv: Optional[List[str]]) -> str:
     if source == "-":
         return sys.stdin.read()
     if source:
@@ -434,7 +435,7 @@ def _read_source(source, fallback_argv):
 ADAPTERS = {"crontab": read_crontab, "json": read_json_export}
 
 
-def diff_parity(roster, live):
+def diff_parity(roster: Roster, live: Dict[str, str]) -> List[Tuple[str, str, str]]:
     """Three columns of drift, each named. Missing = the fleet lost a routine on
     this machine; extra = something schedules work the roster never approved."""
     rows = []
@@ -450,7 +451,7 @@ def diff_parity(roster, live):
     return rows
 
 
-def cmd_parity(args, roster, _state):
+def cmd_parity(args: argparse.Namespace, roster: Roster, _state: State) -> int:
     live = ADAPTERS[args.adapter](args.source)
     rows = diff_parity(roster, live)
     print("PARITY  roster %s  vs  %s %s"
@@ -466,7 +467,7 @@ def cmd_parity(args, roster, _state):
 
 # ---------- crontab generation ----------
 
-def cmd_crontab(args, roster, _state):
+def cmd_crontab(args: argparse.Namespace, roster: Roster, _state: State) -> int:
     # Cron needs paths as the machine will see them, which is rarely where the
     # roster is being edited — hence one install directory for both.
     install = os.path.abspath(args.install_dir) if args.install_dir else roster.dir
@@ -481,7 +482,7 @@ def cmd_crontab(args, roster, _state):
     return 0
 
 
-def cmd_validate(args, _roster, _state):
+def cmd_validate(args: argparse.Namespace, _roster: Optional[Roster], _state: State) -> int:
     with open(args.roster) as handle:
         problems = validate_roster(json.load(handle))
     if problems:
@@ -495,7 +496,7 @@ def cmd_validate(args, _roster, _state):
 
 # ---------- cli ----------
 
-def parse_now(raw):
+def parse_now(raw: Optional[str]) -> datetime:
     if raw is None:
         return datetime.now()
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"):
@@ -506,7 +507,7 @@ def parse_now(raw):
     raise FleetError("Expected `--now` as YYYY-MM-DDTHH:MM, got `%s`" % raw)
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--roster", default="fleet.json", help="the canonical roster")
     parser.add_argument("--state", help="marker and run-log directory (default: <roster dir>/state)")
@@ -536,7 +537,7 @@ HANDLERS = {"validate": cmd_validate, "run": cmd_run, "report": cmd_report,
             "parity": cmd_parity, "crontab": cmd_crontab}
 
 
-def main(argv=None):
+def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.subcommand:
