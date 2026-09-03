@@ -1,9 +1,6 @@
 # routine-fleet
 
-Scheduled AI routines rot silently. One stops firing and nobody notices for
-three weeks; another fires twice and double-writes the same report; an account
-migration quietly drops half the fleet. Every one of those failures is invisible
-because a job that does not run produces no output to look at.
+Scheduled AI routines rot silently: one stops firing and nobody notices for weeks, another fires twice and double-writes a report. routine-fleet keeps a fleet honest with a twin-run guard, a watchdog for silent deaths, and a parity check against the live scheduler. One roster file, stdlib Python.
 
 This is the smallest honest fix: one roster as the source of truth, a run guard
 that refuses a second run in the same slot, a watchdog that says per routine
@@ -23,7 +20,7 @@ python3 fleet.py --roster demo/fleet.json validate    # zero dependencies, Pytho
 ```
 
 That lints the shipped demo fleet. The [walkthrough](#walkthrough) below runs
-the whole pattern — guard, twin refusal, watchdog, parity — offline, from this
+the whole pattern (guard, twin refusal, watchdog, parity) offline, from this
 fresh clone, in five commands.
 
 To adopt it: copy `templates/` next to `fleet.py`, replace the example routines
@@ -36,13 +33,13 @@ the block into your scheduler.
 schedule, prompt or script path, run command, and owner. Everything else derives
 from it: the crontab block is generated from it, the watchdog iterates it, the
 parity check diffs against it. A routine that is not in the roster does not
-exist — that is the whole point of having one.
+exist. That is the whole point of having one.
 
 **A run guard the scheduler actually invokes.** Cron calls `fleet.py run
 <name>`, never the routine directly. The guard resolves which scheduled slot
 `now` belongs to, claims a marker file for that slot with an exclusive create,
 and refuses loudly if the slot is already claimed. Two schedulers racing the
-same minute cannot both win it. Start and completion — with the exit code — go
+same minute cannot both win it. Start and completion (with the exit code) go
 to a run log.
 
 **A watchdog that checks the checkers.** `fleet.py report` reads only the roster
@@ -53,8 +50,8 @@ named line and a loud header. The watchdog is itself a roster entry, so its own
 silence shows up in its next report and in every parity check.
 
 **A parity check for fleets that must exist twice.** Two machines, two accounts,
-a staging box: `fleet.py parity` reads the live scheduler through an adapter —
-`crontab` or a generic `json` export — and prints exactly what is missing,
+a staging box: `fleet.py parity` reads the live scheduler through an adapter
+(`crontab` or a generic `json` export) and prints exactly what is missing,
 extra, or drifted. Fleet-managed cron lines carry a `# fleet:<name>` tag, so
 other people's cron entries are left alone.
 
@@ -90,7 +87,7 @@ With no `command`, the guard executes `runs` directly. Every run gets
 
 Five commands against the shipped demo fleet: three routines plus the watchdog,
 one healthy, one that went silent, one whose prompt file was deleted. Two
-scratch state directories keep the repo clean — the guard writes to one, the
+scratch state directories keep the repo clean: the guard writes to one, the
 canned run log is copied into the other.
 
 ```bash
@@ -175,14 +172,14 @@ Omit `--source` and the crontab adapter reads the live `crontab -l` instead.
 
 Five states, each guarding a way a fleet actually dies:
 
-1. `MISSED` — the last due slot has no run at all. This is the failure that
+1. `MISSED`: the last due slot has no run at all. This is the failure that
    costs weeks, because silence looks exactly like success.
-2. `FAILED` / `INCOMPLETE` — the run started and either exited non-zero or never
+2. `FAILED` / `INCOMPLETE`: the run started and either exited non-zero or never
    recorded a completion. A crashed routine still produces no output; without
    the log it is indistinguishable from a missed slot.
-3. `ROTTED` — the roster points at a prompt or script that no longer exists.
+3. `ROTTED`: the roster points at a prompt or script that no longer exists.
    Catches the rename nobody propagated.
-4. Refused twins — the guard did its job, but something invoked the routine
+4. Refused twins: the guard did its job, but something invoked the routine
    twice in one slot, and that cause is still there.
 5. Unreadable run-log lines are counted, never skipped. The log is the only
    evidence there is, so a corrupt log must not look like a healthy one.
