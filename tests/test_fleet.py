@@ -10,10 +10,24 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import routine_fleet  # noqa: E402
+
+@contextmanager
+def quiet_stderr():
+    """A work check's stderr is passed through to the real fd on purpose, so a
+    test that crashes one on purpose has to mute the descriptor itself."""
+    saved = os.dup(2)
+    with open(os.devnull, "w") as sink:
+        os.dup2(sink.fileno(), 2)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
+
 
 OK_COMMAND = ["/bin/sh", "-c", "exit 0"]
 FAIL_COMMAND = ["/bin/sh", "-c", "exit 4"]
@@ -57,13 +71,13 @@ class FleetCase(unittest.TestCase):
                 log.write(json.dumps(record) + "\n")
         return state
 
-    def write_check(self, name, body, executable=True):
+    def write_check(self, name, body, executable=True, shebang="#!/bin/sh"):
         """A work check is a real executable script in a real temp directory."""
         folder = os.path.join(self.root, "checks")
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, name)
         with open(path, "w") as handle:
-            handle.write("#!/bin/sh\n" + body + "\n")
+            handle.write(shebang + "\n" + body + "\n")
         if executable:
             os.chmod(path, 0o755)
         return "checks/" + name
@@ -359,6 +373,28 @@ class TestValidate(FleetCase):
         self.assertIn("Expected `hour` in 0-23, got 99", output)
         self.assertIn("unknown key `retries`", output)
 
+    def test_a_bad_work_check_is_rejected(self):
+        for bad in (5, "", "   ", True):
+            roster = self.write_roster([entry("brief", "0 8 * * *", work_check=bad)])
+            code, output = self.run_cli("--roster", roster, "validate")
+            self.assertEqual(code, 1, "accepted work_check=%r" % bad)
+            self.assertIn("`work_check` must be a non-empty string", output)
+
+    def test_a_bad_work_check_seconds_is_rejected(self):
+        for bad in (0, -1, 5.5, "5", True):
+            roster = self.write_roster([entry("brief", "0 8 * * *")],
+                                       work_check_seconds=bad)
+            code, output = self.run_cli("--roster", roster, "validate")
+            self.assertEqual(code, 1, "accepted work_check_seconds=%r" % bad)
+            self.assertIn("`work_check_seconds` must be a positive integer", output)
+
+    def test_a_good_work_check_passes(self):
+        roster = self.write_roster([entry("brief", "0 8 * * *",
+                                          work_check="checks/brief.sh")],
+                                   work_check_seconds=3)
+        code, _ = self.run_cli("--roster", roster, "validate")
+        self.assertEqual(code, 0)
+
     def test_watchdog_must_name_a_real_routine(self):
         code, output = self.lint([entry("brief", "0 8 * * *")], watchdog="guard")
         self.assertEqual(code, 1)
@@ -402,10 +438,11 @@ class TestWorkCheck(FleetCase):
     def ran(self, target):
         return os.path.exists(target)
 
-    def build(self, check_body, executable=True, **top):
+    def build(self, check_body, executable=True, shebang="#!/bin/sh", **top):
         """A one-routine fleet whose run leaves a trace on disk when it happens."""
         self.target = os.path.join(self.root, "it-ran")
-        check = self.write_check("brief.sh", check_body, executable=executable)
+        check = self.write_check("brief.sh", check_body, executable=executable,
+                                 shebang=shebang)
         routines = [entry("brief", "0 8 * * *", self.touch_command(self.target),
                           work_check=check)]
         return self.write_roster(routines, **top)
@@ -417,7 +454,7 @@ class TestWorkCheck(FleetCase):
                             *(list(before) + ["run", "brief"]))
 
     def test_a_clean_nothing_to_do_cancels_the_run(self):
-        roster = self.build("exit 1")
+        roster = self.build("exit 125")
         code, _ = self.invoke(roster)
         self.assertEqual(code, 0)
         self.assertFalse(self.ran(self.target), "the routine ran despite an empty queue")
@@ -428,13 +465,35 @@ class TestWorkCheck(FleetCase):
         self.assertEqual(code, 0)
         self.assertTrue(self.ran(self.target))
 
-    def test_a_crashing_check_fails_open(self):
+    def test_an_unexpected_exit_code_fails_open(self):
         roster = self.build("exit 9")
         self.invoke(roster)
         self.assertTrue(self.ran(self.target), "a broken check silenced the routine")
 
+    def test_a_crashing_python_check_fails_open(self):
+        """An uncaught exception exits 1. If 1 meant "nothing to do", the most
+        common way for a check to break would look exactly like it working."""
+        roster = self.build('raise RuntimeError("the check itself is broken")',
+                            shebang="#!" + sys.executable)
+        with quiet_stderr():
+            self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "a crashed check silenced the routine")
+
+    def test_a_shell_check_whose_queue_moved_fails_open(self):
+        """The realistic rot: the check keeps running, its queue file is renamed
+        by an unrelated change, and `set -e` exits 1 for the rest of time."""
+        roster = self.build("set -e\ntest -s /nonexistent/queue.json\nexit 125")
+        with quiet_stderr():
+            self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "a broken check silenced the routine")
+
+    def test_plain_exit_1_is_not_nothing_to_do(self):
+        roster = self.build("exit 1")
+        self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "exit 1 was read as nothing to do")
+
     def test_a_check_that_cannot_start_fails_open(self):
-        roster = self.build("exit 1", executable=False)
+        roster = self.build("exit 125", executable=False)
         code, output = self.invoke(roster)
         self.assertTrue(self.ran(self.target), "an unrunnable check silenced the routine")
         self.assertIn("could not start", output)
@@ -448,13 +507,13 @@ class TestWorkCheck(FleetCase):
         self.assertTrue(self.ran(self.target), "a missing check silenced the routine")
 
     def test_a_hanging_check_is_killed_at_the_cap_and_the_routine_runs(self):
-        roster = self.build("sleep 30; exit 1", work_check_seconds=1)
+        roster = self.build("sleep 30; exit 125", work_check_seconds=1)
         code, output = self.invoke(roster)
         self.assertTrue(self.ran(self.target), "a hung check silenced the routine")
         self.assertIn("ran past 1s", output)
 
     def test_ignore_work_check_runs_it_anyway(self):
-        roster = self.build("exit 1")
+        roster = self.build("exit 125")
         self.invoke(roster, "--ignore-work-check")
         self.assertTrue(self.ran(self.target))
 
@@ -463,7 +522,7 @@ class TestWorkCheck(FleetCase):
         written there is the routine's command. Cancelling the run anyway, and
         exiting 0, would tell the operator they had forced a run when they had
         not. It stops and says where the flag goes."""
-        roster = self.build("exit 1")
+        roster = self.build("exit 125")
         state = os.path.join(self.root, "state")
         code, output = self.run_cli("--roster", roster, "--state", state,
                                     "--now", "2026-03-02T08:05",
@@ -474,7 +533,7 @@ class TestWorkCheck(FleetCase):
 
     def test_a_cancelled_run_does_not_spend_the_slot(self):
         """Work can turn up inside the same slot; the check must not close it."""
-        roster = self.build("exit 1")
+        roster = self.build("exit 125")
         state = os.path.join(self.root, "state")
         self.invoke(roster, state=state)
         self.assertFalse(self.ran(self.target))
@@ -493,7 +552,7 @@ class TestWorkCheck(FleetCase):
         self.assertIn("TWIN REFUSED", output)
 
     def test_the_run_log_records_the_skip_with_its_reason(self):
-        roster = self.build("exit 1")
+        roster = self.build("exit 125")
         self.invoke(roster)
         with open(os.path.join(self.root, "state", "run-log.jsonl")) as log:
             records = [json.loads(line) for line in log if line.strip()]
@@ -504,7 +563,7 @@ class TestWorkCheck(FleetCase):
     def test_the_check_is_told_which_routine_it_answers_for(self):
         seen = os.path.join(self.root, "seen")
         roster = self.build('printf "%s %s" "$FLEET_ROUTINE" "$FLEET_SLOT" > '
-                            + seen + "; exit 1")
+                            + seen + "; exit 125")
         self.invoke(roster)
         with open(seen) as handle:
             self.assertEqual(handle.read(), "brief 2026-03-02T08:00")
@@ -550,6 +609,34 @@ class TestWorkCheckInTheReport(FleetCase):
         self.assertIn("OK", output)
         self.assertNotIn("SKIPPED", output)
         self.assertEqual(code, 0)
+
+    def test_one_slot_checked_three_times_counts_once(self):
+        """Cron can fire more than once inside a slot. Three idle checks in one
+        slot are one skipped slot, not three."""
+        roster, state = self.roster_with_skip([
+            {"name": "brief", "slot": "2026-03-02T08:00", "event": "skipped",
+             "at": "2026-03-02 08:0%d" % n, "why": "nothing to do"} for n in (1, 3, 5)])
+        _, output = self.report(roster, state)
+        self.assertIn("[1 since the last run]", output)
+
+    def test_a_slot_that_ran_is_not_counted_as_skipped(self):
+        """Skipped early, then really ran, then a later slot went idle: one."""
+        roster, state = self.roster_with_skip([
+            {"name": "brief", "slot": "2026-03-01T08:00", "event": "skipped",
+             "at": "2026-03-01 08:01", "why": "nothing to do"},
+            {"name": "brief", "slot": "2026-03-01T08:00", "event": "complete",
+             "at": "2026-03-01 08:40", "exit": 0},
+            {"name": "brief", "slot": "2026-03-02T08:00", "event": "skipped",
+             "at": "2026-03-02 08:05", "why": "nothing to do"}])
+        _, output = self.report(roster, state)
+        self.assertIn("[1 since the last run]", output)
+
+    def test_a_log_line_with_no_slot_is_damaged_not_a_traceback(self):
+        roster, state = self.roster_with_skip([
+            {"name": "brief", "event": "skipped", "at": "2026-03-02 08:05"}])
+        code, output = self.report(roster, state)
+        self.assertIn("unreadable run-log line", output)
+        self.assertEqual(code, 1)
 
     def test_a_failed_run_after_skips_is_still_failed(self):
         roster, state = self.roster_with_skip([

@@ -78,20 +78,25 @@ written for fired 29 times in a week, found an empty queue every one of those
 times, and paid the full price of starting a model on each. Now it pays for a
 script.
 
-Only a clean exit 1 ("nothing to do") cancels a run. Exit 0 means work exists. A
-check that is missing, cannot start, crashes, hangs past `work_check_seconds`,
-or answers with anything else **fails open and the routine runs**. That
-asymmetry is the whole rule: the worst a work check may do is save a run that
-was going to do nothing. It may never be the reason a routine that had work to
-do stayed silent, because a broken optimisation that can silence a schedule is
-worse than no optimisation at all.
+**Exit 125, and only 125, means "nothing to do"** and cancels the run. Every
+other code runs the routine, as does a check that is missing, cannot start,
+hangs past `work_check_seconds`, or is killed by a signal. That asymmetry is the
+whole rule: the worst a work check may do is save a run that was going to do
+nothing. It may never be the reason a routine that had work to do stayed silent,
+because a broken optimisation that can silence a schedule is worse than no
+optimisation at all.
+
+125 is deliberately not 1. An uncaught exception in Python or Node exits 1, and
+so does a shell check under `set -e` whose queue file has been renamed by an
+unrelated change. If 1 meant "nothing to do", the most common way for a check to
+break would be indistinguishable from the check working, and a dead routine
+would keep logging that it was idle. 125 is the code `git bisect` uses for
+"skip this one", and no runtime or shell produces it by accident.
 
 The check runs before the slot is claimed, so a cancelled run does not spend the
 slot: if work turns up twenty minutes later, that slot can still run. The
-cancellation is written to the run log, the watchdog reads it as `SKIPPED`
-rather than a missed run, and the report prints how many slots have been
-skipped since the routine last actually ran, because a routine with nothing to
-do for a month and a routine that quietly died look identical from outside.
+cancellation is written to the run log, and the watchdog reads it as `SKIPPED`
+rather than the missed run it would otherwise report.
 
 **A watchdog that checks the checkers.** `routine_fleet.py report` reads only the roster
 and the run log. For each routine it finds the last slot that is past its grace
@@ -220,7 +225,7 @@ roster cannot quietly grow a field nothing reads:
       "command": ["bin/run-prompt.sh", "{path}"],  // optional; {path} = resolved runs
       "owner": "you@example.com",      // who gets called when this line goes red
       "grace_minutes": 120,            // optional per-routine override
-      "work_check": "checks/daily-brief.sh"  // optional; exit 1 = nothing to do, cancel
+      "work_check": "checks/daily-brief.sh"  // optional; exit 125 = nothing to do, cancel
     }
   ]
 }
@@ -238,7 +243,7 @@ name is the routine's own command.
 
 ## What the watchdog enforces
 
-Five states, each guarding a way a fleet actually dies:
+Five flagged states, each guarding a way a fleet actually dies:
 
 1. `MISSED`: the last due slot has no run at all. This is the failure that
    costs weeks, because silence looks exactly like success.
@@ -252,12 +257,15 @@ Five states, each guarding a way a fleet actually dies:
 5. Unreadable run-log lines are counted, never skipped. The log is the only
    evidence there is, so a corrupt log must not look like a healthy one.
 
-`SKIPPED` is the one state that is not a flag: the run was cancelled on purpose
-because its work check found nothing to do. The count beside it is how many
-slots have been skipped since the routine last really ran, which is the number
-worth looking at. A check stuck on "nothing to do" silences a routine as
-completely as a broken cron line, and this tool exists because nobody notices
-that on their own.
+`SKIPPED` is a sixth status and the one that is not a flag: the run was
+cancelled on purpose because its work check found nothing to do. Beside it is the
+number of slots skipped since the routine last really ran.
+
+**That count is printed, not alerted on.** A routine skipped four hundred times
+running still reports `ALL CLEAR` and still exits 0, so nothing mails you. A
+check stuck on "nothing to do" silences a routine as completely as a broken cron
+line does, and unlike the broken cron line it does not turn the report red. The
+count is there so the number is in front of you; reading it is still on you.
 
 `report` exits 1 on any of these, which is what turns it into an alert: cron
 mails the output, or the watchdog prompt reads the header and escalates to the
@@ -297,5 +305,13 @@ belonged to, and only a slot identity makes "did this already run?" answerable.
 - `validate` checks that `work_check` is a string, not that the file exists or
   is executable. A check that cannot run fails open, says so on stderr, and the
   routine runs: safe, but easy not to notice.
+- `SKIPPED` never turns the report red and never changes its exit code, so a
+  check wrongly stuck on "nothing to do" will not page anyone. Only the printed
+  count says so, and only if someone reads it.
+- A work check that itself exits 125 when it fails has defeated the whole
+  asymmetry. 125 is chosen to be hard to hit by accident, not impossible.
+- Refused twins go unseen on a skipped slot. The check runs before the slot is
+  claimed, so two schedulers firing into one idle slot both cancel quietly and
+  neither is recorded as a twin. A real run in that slot still refuses its twin.
 
 MIT licensed, see LICENSE.

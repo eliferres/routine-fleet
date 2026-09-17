@@ -7,7 +7,7 @@ the run log and says, per routine, whether the last due slot actually happened.
 Parity diffs the live scheduler against the roster.
 
 A routine may name a cheap work check, which answers "anything to do?" before
-the expensive run. Only a clean exit 1 cancels; anything else fails open.
+the expensive run. Only exit 125 cancels; every other code fails open.
 
 Subcommands: validate, run, report, parity, crontab. Zero dependencies.
 Exit codes: 0 clean, 1 problems found, 2 usage/IO error. `run` exits 3 when it
@@ -30,9 +30,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # monthly cadence; past that a routine has bigger problems than a late run.
 MAX_LOOKBACK_MINUTES = 62 * 24 * 60
 DEFAULT_GRACE_MINUTES = 30
-# The work check is a hard cap, not a tuning knob: a checker that hangs must
-# never hold up the scheduler. Past the cap its verdict is discarded and the
-# routine runs, exactly as if the checker had crashed.
+# How long a work check may take before it is killed and its verdict thrown
+# away. A roster can raise or lower it with `work_check_seconds`; there is no
+# upper bound, because the operator who writes the roster is the one waiting.
 DEFAULT_WORK_CHECK_SECONDS = 5
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 CRON_TAG_RE = re.compile(r"#\s*fleet:([^\s#]+)\s*$")
@@ -300,7 +300,8 @@ class State(object):
                 except ValueError:
                     damaged += 1
                     continue
-                if isinstance(record, dict) and "name" in record and "event" in record:
+                if (isinstance(record, dict) and "name" in record
+                        and "event" in record and "slot" in record):
                     records.append(record)
                 else:
                     damaged += 1
@@ -309,17 +310,24 @@ class State(object):
 
 # ---------- run: the work check ----------
 
-# Exit 1, and only exit 1, means "nothing to do". Everything else runs.
-NOTHING_TO_DO = 1
+# The one exit code that means "nothing to do". It is deliberately NOT 1.
+# An uncaught exception in Python or Node exits 1, and so does a shell check
+# under `set -e` whose queue file has moved. If 1 meant "nothing to do", the
+# most common way for a check to break would be indistinguishable from the
+# check working, and the routine would be dead while the log said it was idle:
+# the exact silent rot this tool exists to catch. 125 is the code `git bisect`
+# uses for "skip this one". No runtime and no shell produces it by accident.
+NOTHING_TO_DO = 125
 
 
 def work_check_is_idle(routine: "Routine", cap: int, cwd: str,
                        env: Dict[str, str]) -> Tuple[bool, str]:
     """Ask a cheap script whether the expensive routine has anything to do.
 
-    A clean exit 1 is the only answer that cancels a run. Exit 0 means work
-    exists. A checker that is missing, cannot start, crashes, hangs past the cap
-    or answers with any other code FAILS OPEN and the routine runs.
+    Exit 125 is the only answer that cancels a run. Every other code, including
+    the 1 that a crashed interpreter returns, FAILS OPEN and the routine runs,
+    as does a check that is missing, cannot start, hangs past the cap, or is
+    killed by a signal.
 
     That asymmetry is the whole rule. The worst a work check may ever do is save
     a run that was going to do nothing; it may never be the reason a routine
@@ -347,14 +355,18 @@ def work_check_is_idle(routine: "Routine", cap: int, cwd: str,
     return False, "exit %d" % code
 
 
+
 # ---------- run: the guard ----------
 
 def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
     routine = roster.get(args.name)
-    # Written after the name, the flag has already become part of the routine's
-    # own command. Silently cancelling a run the operator asked us to force is
-    # the worst outcome available, so say exactly what happened instead.
-    if args.command and "--ignore-work-check" in args.command:
+    # A command that is nothing but this flag is a misplacement, not a command:
+    # after the routine name it has already become the routine's own argv, and
+    # silently cancelling a run the operator asked to force is the worst outcome
+    # available. Anything longer is left alone, so `-- prog --ignore-work-check`
+    # still reaches the routine, and a routine with no work check is not our
+    # business at all.
+    if routine.work_check_path and args.command == ["--ignore-work-check"]:
         raise FleetError("--ignore-work-check goes before `run`, not after the routine "
                          "name: everything after the name is the routine's own command. "
                          "Try: %s --ignore-work-check run %s" % (prog_name(), routine.name))
@@ -447,12 +459,15 @@ def cmd_report(args: argparse.Namespace, roster: Roster, state: State) -> int:
                 by_slot.setdefault(record["slot"], record)
         twins = sum(1 for r in mine if r["event"] == "twin-refused")
         twin_total += twins
-        skipped_since_run = 0
+        ran_slots = set(r["slot"] for r in mine
+                        if r["event"] in ("start", "complete"))
+        skipped_slots = set()
         for record in reversed(mine):
-            if record["event"] == "skipped":
-                skipped_since_run += 1
-            elif record["event"] in ("start", "complete"):
+            if record["event"] in ("start", "complete"):
                 break
+            if record["event"] == "skipped" and record["slot"] not in ran_slots:
+                skipped_slots.add(record["slot"])
+        skipped_since_run = len(skipped_slots)
         status, detail = assess(routine, now, by_slot, twins, skipped_since_run)
         if status in FLAGGED:
             flagged += 1
@@ -644,7 +659,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("validate", help="lint the roster")
 
-    run = subparsers.add_parser("run", help="run one routine through the guard")
+    run = subparsers.add_parser(
+        "run", help="run one routine through the guard",
+        description="Run one routine through the guard. Everything after NAME is the "
+                    "routine's own command, so --ignore-work-check goes before `run`.")
     run.add_argument("name")
     run.add_argument("command", nargs=argparse.REMAINDER,
                      help="optional `-- argv` overriding the roster command")
