@@ -1,11 +1,11 @@
 # routine-fleet
 
-Scheduled AI routines rot silently: one stops firing and nobody notices for weeks, another fires twice and double-writes a report. routine-fleet keeps a fleet honest with a twin-run guard, a watchdog for silent deaths, and a parity check against the live scheduler. One roster file, stdlib Python.
-
-This is the smallest honest fix: one roster as the source of truth, a run guard
-that refuses a second run in the same slot, a watchdog that says per routine
-whether the last due slot actually happened, and a parity check that diffs the
-live scheduler against the roster. One Python file, standard library only.
+Scheduled AI routines rot silently: one stops firing and nobody notices for
+weeks, another fires twice and double-writes a report. routine-fleet is the
+smallest honest fix. One roster file is the source of truth, a run guard
+refuses a second run in the same slot, a watchdog says per routine whether the
+last due slot actually happened, and a parity check diffs the live scheduler
+against the roster. One Python file, standard library only.
 
 ![ci](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)
 
