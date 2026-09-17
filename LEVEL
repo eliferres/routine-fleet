@@ -1,0 +1,10 @@
+# What this project is responsible for, and what happens when it breaks.
+level: 1
+owner: Eli Ferres
+monitor: GitHub Actions on every push and pull request; the badge in the README is the health signal. Failures surface as issues.
+rollback: git revert, then re-tag. Installed copies are pinned to a version and are unaffected until the user upgrades.
+migrations: n/a: the tool owns no database and no schema.
+backups: n/a: the run log and slot markers are local evidence about the last run. Losing them makes the watchdog report a missed slot, which is the safe direction.
+authz: n/a: no server and no trust boundary. It runs locally, as whoever invoked it, with exactly their permissions.
+logs: the run log is JSON lines, one record per start, completion, refused twin or cancelled run, written where the operator points it. That log is the only evidence the watchdog reads.
+alerts: `report` exits 1 whenever anything needs a human, which is what turns it into an alert: the scheduler mails the output, or the watchdog routine escalates to the owner named in the roster.
