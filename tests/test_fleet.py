@@ -57,6 +57,17 @@ class FleetCase(unittest.TestCase):
                 log.write(json.dumps(record) + "\n")
         return state
 
+    def write_check(self, name, body, executable=True):
+        """A work check is a real executable script in a real temp directory."""
+        folder = os.path.join(self.root, "checks")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, name)
+        with open(path, "w") as handle:
+            handle.write("#!/bin/sh\n" + body + "\n")
+        if executable:
+            os.chmod(path, 0o755)
+        return "checks/" + name
+
     def run_cli(self, *argv):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
@@ -375,6 +386,179 @@ class TestShippedExamples(FleetCase):
         self.assertIn("OK         daily-standup-brief", output)
         self.assertIn("MISSED     nightly-link-sweep", output)
         self.assertIn("ROTTED     weekly-access-audit", output)
+
+
+
+class TestWorkCheck(FleetCase):
+    """Only a clean `nothing to do` may cancel a run. Everything else runs.
+
+    The asymmetry is the point: a work check may save an empty run, but it may
+    never be the reason a routine that had work to do stayed silent.
+    """
+
+    def touch_command(self, target):
+        return ["/bin/sh", "-c", "touch %s" % target]
+
+    def ran(self, target):
+        return os.path.exists(target)
+
+    def build(self, check_body, executable=True, **top):
+        """A one-routine fleet whose run leaves a trace on disk when it happens."""
+        self.target = os.path.join(self.root, "it-ran")
+        check = self.write_check("brief.sh", check_body, executable=executable)
+        routines = [entry("brief", "0 8 * * *", self.touch_command(self.target),
+                          work_check=check)]
+        return self.write_roster(routines, **top)
+
+    def invoke(self, roster, *before, **kwargs):
+        state = kwargs.pop("state", os.path.join(self.root, "state"))
+        now = kwargs.pop("now", "2026-03-02T08:05")
+        return self.run_cli("--roster", roster, "--state", state, "--now", now,
+                            *(list(before) + ["run", "brief"]))
+
+    def test_a_clean_nothing_to_do_cancels_the_run(self):
+        roster = self.build("exit 1")
+        code, _ = self.invoke(roster)
+        self.assertEqual(code, 0)
+        self.assertFalse(self.ran(self.target), "the routine ran despite an empty queue")
+
+    def test_work_exists_runs_the_routine(self):
+        roster = self.build("exit 0")
+        code, _ = self.invoke(roster)
+        self.assertEqual(code, 0)
+        self.assertTrue(self.ran(self.target))
+
+    def test_a_crashing_check_fails_open(self):
+        roster = self.build("exit 9")
+        self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "a broken check silenced the routine")
+
+    def test_a_check_that_cannot_start_fails_open(self):
+        roster = self.build("exit 1", executable=False)
+        code, output = self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "an unrunnable check silenced the routine")
+        self.assertIn("could not start", output)
+
+    def test_a_missing_check_fails_open(self):
+        self.target = os.path.join(self.root, "it-ran")
+        roster = self.write_roster([entry("brief", "0 8 * * *",
+                                          self.touch_command(self.target),
+                                          work_check="checks/gone.sh")])
+        self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "a missing check silenced the routine")
+
+    def test_a_hanging_check_is_killed_at_the_cap_and_the_routine_runs(self):
+        roster = self.build("sleep 30; exit 1", work_check_seconds=1)
+        code, output = self.invoke(roster)
+        self.assertTrue(self.ran(self.target), "a hung check silenced the routine")
+        self.assertIn("ran past 1s", output)
+
+    def test_ignore_work_check_runs_it_anyway(self):
+        roster = self.build("exit 1")
+        self.invoke(roster, "--ignore-work-check")
+        self.assertTrue(self.ran(self.target))
+
+    def test_the_flag_after_the_name_is_named_not_swallowed(self):
+        """`run <name> <command...>` takes the rest of the line, so a flag
+        written there is the routine's command. Cancelling the run anyway, and
+        exiting 0, would tell the operator they had forced a run when they had
+        not. It stops and says where the flag goes."""
+        roster = self.build("exit 1")
+        state = os.path.join(self.root, "state")
+        code, output = self.run_cli("--roster", roster, "--state", state,
+                                    "--now", "2026-03-02T08:05",
+                                    "run", "brief", "--ignore-work-check")
+        self.assertEqual(code, 2)
+        self.assertIn("goes before `run`", output)
+        self.assertFalse(self.ran(self.target))
+
+    def test_a_cancelled_run_does_not_spend_the_slot(self):
+        """Work can turn up inside the same slot; the check must not close it."""
+        roster = self.build("exit 1")
+        state = os.path.join(self.root, "state")
+        self.invoke(roster, state=state)
+        self.assertFalse(self.ran(self.target))
+        # same slot, and now the check says there is work
+        self.write_check("brief.sh", "exit 0")
+        code, _ = self.invoke(roster, state=state, now="2026-03-02T08:40")
+        self.assertEqual(code, 0, "the cancelled run had claimed the slot")
+        self.assertTrue(self.ran(self.target))
+
+    def test_a_real_run_still_refuses_its_twin(self):
+        roster = self.build("exit 0")
+        state = os.path.join(self.root, "state")
+        self.invoke(roster, state=state)
+        code, output = self.invoke(roster, state=state, now="2026-03-02T08:47")
+        self.assertEqual(code, 3)
+        self.assertIn("TWIN REFUSED", output)
+
+    def test_the_run_log_records_the_skip_with_its_reason(self):
+        roster = self.build("exit 1")
+        self.invoke(roster)
+        with open(os.path.join(self.root, "state", "run-log.jsonl")) as log:
+            records = [json.loads(line) for line in log if line.strip()]
+        self.assertEqual([r["event"] for r in records], ["skipped"])
+        self.assertEqual(records[0]["why"], "nothing to do")
+        self.assertEqual(records[0]["check"], "checks/brief.sh")
+
+    def test_the_check_is_told_which_routine_it_answers_for(self):
+        seen = os.path.join(self.root, "seen")
+        roster = self.build('printf "%s %s" "$FLEET_ROUTINE" "$FLEET_SLOT" > '
+                            + seen + "; exit 1")
+        self.invoke(roster)
+        with open(seen) as handle:
+            self.assertEqual(handle.read(), "brief 2026-03-02T08:00")
+
+
+class TestWorkCheckInTheReport(FleetCase):
+    def roster_with_skip(self, records, **top):
+        roster = self.write_roster([entry("brief", "0 8 * * *")], **top)
+        state = self.write_log(records)
+        return roster, state
+
+    def report(self, roster, state, now="2026-03-02T09:00"):
+        return self.run_cli("--roster", roster, "--state", state, "--now", now, "report")
+
+    def test_a_skipped_slot_is_not_a_missed_one(self):
+        roster, state = self.roster_with_skip([
+            {"name": "brief", "slot": "2026-03-02T08:00", "event": "skipped",
+             "at": "2026-03-02 08:05", "why": "nothing to do"}])
+        code, output = self.report(roster, state)
+        self.assertIn("SKIPPED", output)
+        self.assertNotIn("MISSED", output)
+        self.assertIn("ALL CLEAR", output)
+        self.assertEqual(code, 0)
+
+    def test_the_report_counts_the_skips_since_the_last_real_run(self):
+        records = [{"name": "brief", "slot": "2026-02-%02dT08:00" % day,
+                    "event": "skipped", "at": "2026-02-%02d 08:05" % day,
+                    "why": "nothing to do"} for day in range(24, 29)]
+        records.append({"name": "brief", "slot": "2026-03-02T08:00",
+                        "event": "skipped", "at": "2026-03-02 08:05",
+                        "why": "nothing to do"})
+        roster, state = self.roster_with_skip(records)
+        _, output = self.report(roster, state)
+        self.assertIn("[6 since the last run]", output)
+
+    def test_a_real_run_resets_the_count_and_outranks_a_skip_in_its_slot(self):
+        roster, state = self.roster_with_skip([
+            {"name": "brief", "slot": "2026-03-02T08:00", "event": "skipped",
+             "at": "2026-03-02 08:01", "why": "nothing to do"},
+            {"name": "brief", "slot": "2026-03-02T08:00", "event": "complete",
+             "at": "2026-03-02 08:40", "exit": 0}])
+        code, output = self.report(roster, state)
+        self.assertIn("OK", output)
+        self.assertNotIn("SKIPPED", output)
+        self.assertEqual(code, 0)
+
+    def test_a_failed_run_after_skips_is_still_failed(self):
+        roster, state = self.roster_with_skip([
+            {"name": "brief", "slot": "2026-03-02T08:00", "event": "complete",
+             "at": "2026-03-02 08:05", "exit": 4}])
+        code, output = self.report(roster, state)
+        self.assertIn("FAILED", output)
+        self.assertEqual(code, 1)
+
 
 
 if __name__ == "__main__":

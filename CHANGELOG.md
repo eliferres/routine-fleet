@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## Unreleased
 
 ### Added
+- Work checks: a routine can name a `work_check` script that answers "anything to do?" before the run. A clean exit 1 cancels the run at the cost of the script; everything else, including a missing, crashing or hung check, fails open and runs the routine. `work_check_seconds` (default 5) caps how long a check may take, and `--ignore-work-check` overrides it for one run.
+- `SKIPPED` in the watchdog report for a run its work check cancelled, counted since the routine last really ran, so a check stuck on "nothing to do" cannot silence a routine unnoticed.
 - Installable with `pipx install git+https://github.com/eliferres/routine-fleet`, which puts a `routine-fleet` command on your PATH; `routine-fleet --version` prints the version.
 
 ### Changed

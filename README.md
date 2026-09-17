@@ -69,6 +69,30 @@ and refuses loudly if the slot is already claimed. Two schedulers racing the
 same minute cannot both win it. Start and completion (with the exit code) go
 to a run log.
 
+**A work check, so an empty run costs nothing.** Most scheduled routines have
+nothing to do most of the time, and finding that out is usually the expensive
+part: the runner starts, the model loads, the queue turns out to be empty, and
+the whole cost was paid to learn nothing. Give a routine a `work_check` and a
+cheap script answers "anything to do?" first. One routine on the fleet this was
+written for fired 29 times in a week, found an empty queue every one of those
+times, and paid the full price of starting a model on each. Now it pays for a
+script.
+
+Only a clean exit 1 ("nothing to do") cancels a run. Exit 0 means work exists. A
+check that is missing, cannot start, crashes, hangs past `work_check_seconds`,
+or answers with anything else **fails open and the routine runs**. That
+asymmetry is the whole rule: the worst a work check may do is save a run that
+was going to do nothing. It may never be the reason a routine that had work to
+do stayed silent, because a broken optimisation that can silence a schedule is
+worse than no optimisation at all.
+
+The check runs before the slot is claimed, so a cancelled run does not spend the
+slot: if work turns up twenty minutes later, that slot can still run. The
+cancellation is written to the run log, the watchdog reads it as `SKIPPED`
+rather than a missed run, and the report prints how many slots have been
+skipped since the routine last actually ran, because a routine with nothing to
+do for a month and a routine that quietly died look identical from outside.
+
 **A watchdog that checks the checkers.** `routine_fleet.py report` reads only the roster
 and the run log. For each routine it finds the last slot that is past its grace
 window and asks whether that slot completed. Silence, non-zero exits, refused
@@ -166,6 +190,9 @@ and CI can act on the result without reading the output:
 | 1 | Problems found: `validate`, `report` or `parity` has something for a human. |
 | 2 | Usage or IO error: a bad flag, an unreadable roster, a state directory that cannot be created. |
 
+A run cancelled by its work check exits 0: nothing went wrong, and there was
+nothing to do.
+
 `run` is the exception. It exits 3 when the slot is already claimed and the
 twin is refused, 2 on a usage or IO error of its own, and otherwise passes the
 routine's exit code straight through: a routine that exits 7 makes `run` exit
@@ -184,6 +211,7 @@ roster cannot quietly grow a field nothing reads:
   "timezone": "UTC",          // documentation only; slots use the local clock
   "grace_minutes": 30,        // fleet-wide default before a late slot is "missed"
   "watchdog": "fleet-watchdog",  // the routine that runs `report`; checked last
+  "work_check_seconds": 5,    // hard cap on any work check; past it, the routine runs
   "routines": [
     {
       "name": "daily-brief",           // [a-z0-9][a-z0-9._-]*, unique in the fleet
@@ -191,7 +219,8 @@ roster cannot quietly grow a field nothing reads:
       "runs": "routines/daily-brief.md",  // prompt or script, relative to the roster
       "command": ["bin/run-prompt.sh", "{path}"],  // optional; {path} = resolved runs
       "owner": "you@example.com",      // who gets called when this line goes red
-      "grace_minutes": 120             // optional per-routine override
+      "grace_minutes": 120,            // optional per-routine override
+      "work_check": "checks/daily-brief.sh"  // optional; exit 1 = nothing to do, cancel
     }
   ]
 }
@@ -199,7 +228,13 @@ roster cannot quietly grow a field nothing reads:
 
 With no `command`, the guard executes `runs` directly. Every run gets
 `FLEET_ROUTINE`, `FLEET_SLOT`, and `FLEET_RUNS` in its environment;
-`FLEET_SLOT` doubles as an idempotency key downstream.
+`FLEET_SLOT` doubles as an idempotency key downstream. A `work_check` is
+executed the same way and gets the same three variables, so one script can
+answer for several routines. It must be executable and carry a shebang; its
+stdout is swallowed, because its exit code is the whole answer, and its stderr
+is left alone so a failing check can say so. `--ignore-work-check` runs a
+routine regardless, and goes before `run`, since everything after the routine
+name is the routine's own command.
 
 ## What the watchdog enforces
 
@@ -216,6 +251,13 @@ Five states, each guarding a way a fleet actually dies:
    twice in one slot, and that cause is still there.
 5. Unreadable run-log lines are counted, never skipped. The log is the only
    evidence there is, so a corrupt log must not look like a healthy one.
+
+`SKIPPED` is the one state that is not a flag: the run was cancelled on purpose
+because its work check found nothing to do. The count beside it is how many
+slots have been skipped since the routine last really ran, which is the number
+worth looking at. A check stuck on "nothing to do" silences a routine as
+completely as a broken cron line, and this tool exists because nobody notices
+that on their own.
 
 `report` exits 1 on any of these, which is what turns it into an alert: cron
 mails the output, or the watchdog prompt reads the header and escalates to the
@@ -250,5 +292,10 @@ belonged to, and only a slot identity makes "did this already run?" answerable.
   line running a fleet routine reads as absent.
 - `L`, `W`, `#`, `@reboot`, and other non-standard cron extensions are rejected
   by `validate` rather than approximated.
+- A work check that hangs is killed at the cap, but its own children are not.
+  A check that backgrounds work can outlive the check itself.
+- `validate` checks that `work_check` is a string, not that the file exists or
+  is executable. A check that cannot run fails open, says so on stderr, and the
+  routine runs: safe, but easy not to notice.
 
 MIT licensed, see LICENSE.

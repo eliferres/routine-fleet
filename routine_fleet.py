@@ -6,12 +6,15 @@ day-stamps its slot and refuses a twin. The watchdog reads only the roster and
 the run log and says, per routine, whether the last due slot actually happened.
 Parity diffs the live scheduler against the roster.
 
+A routine may name a cheap work check, which answers "anything to do?" before
+the expensive run. Only a clean exit 1 cancels; anything else fails open.
+
 Subcommands: validate, run, report, parity, crontab. Zero dependencies.
 Exit codes: 0 clean, 1 problems found, 2 usage/IO error. `run` exits 3 when it
 refuses a twin, 127 when the routine cannot be started, and otherwise passes the
 routine's own exit code through.
 """
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 import argparse
 import json
@@ -27,10 +30,16 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # monthly cadence; past that a routine has bigger problems than a late run.
 MAX_LOOKBACK_MINUTES = 62 * 24 * 60
 DEFAULT_GRACE_MINUTES = 30
+# The work check is a hard cap, not a tuning knob: a checker that hangs must
+# never hold up the scheduler. Past the cap its verdict is discarded and the
+# routine runs, exactly as if the checker had crashed.
+DEFAULT_WORK_CHECK_SECONDS = 5
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 CRON_TAG_RE = re.compile(r"#\s*fleet:([^\s#]+)\s*$")
-ROUTINE_KEYS = {"name", "schedule", "runs", "owner", "command", "grace_minutes"}
-ROSTER_KEYS = {"version", "timezone", "grace_minutes", "watchdog", "routines"}
+ROUTINE_KEYS = {"name", "schedule", "runs", "owner", "command", "grace_minutes",
+                "work_check"}
+ROSTER_KEYS = {"version", "timezone", "grace_minutes", "watchdog", "routines",
+               "work_check_seconds"}
 CRON_FIELDS = (("minute", 0, 59), ("hour", 0, 23), ("day-of-month", 1, 31),
                ("month", 1, 12), ("day-of-week", 0, 7))
 
@@ -132,6 +141,9 @@ class Routine(object):
         self.runs_path = os.path.join(roster_dir, self.runs)
         self.command = entry.get("command")
         self.grace = entry.get("grace_minutes", default_grace)
+        self.work_check = entry.get("work_check")
+        self.work_check_path = (os.path.join(roster_dir, self.work_check)
+                                if self.work_check else None)
 
     def argv(self) -> List[str]:
         """The command the guard executes. `{path}` expands to the resolved
@@ -156,6 +168,7 @@ class Roster(object):
             raise FleetError("Roster is invalid; run `validate` for the list")
         self.watchdog = raw.get("watchdog")
         grace = raw.get("grace_minutes", DEFAULT_GRACE_MINUTES)
+        self.work_check_seconds = raw.get("work_check_seconds", DEFAULT_WORK_CHECK_SECONDS)
         self.routines = [Routine(e, self.dir, grace) for e in raw["routines"]]
 
     def get(self, name: str) -> "Routine":
@@ -216,6 +229,14 @@ def validate_roster(raw: Any) -> List[str]:
         if grace is not None and (not isinstance(grace, int) or isinstance(grace, bool)
                                   or grace < 0):
             problems.append("%s: `grace_minutes` must be a non-negative integer" % where)
+        work_check = entry.get("work_check")
+        if work_check is not None and (not isinstance(work_check, str)
+                                       or not work_check.strip()):
+            problems.append("%s: `work_check` must be a non-empty string" % where)
+    seconds = raw.get("work_check_seconds")
+    if seconds is not None and (not isinstance(seconds, int) or isinstance(seconds, bool)
+                                or seconds < 1):
+        problems.append("roster: `work_check_seconds` must be a positive integer")
     watchdog = raw.get("watchdog")
     if watchdog is not None and watchdog not in seen:
         problems.append("roster: `watchdog` names `%s`, which is not a routine" % watchdog)
@@ -286,10 +307,57 @@ class State(object):
         return records, damaged
 
 
+# ---------- run: the work check ----------
+
+# Exit 1, and only exit 1, means "nothing to do". Everything else runs.
+NOTHING_TO_DO = 1
+
+
+def work_check_is_idle(routine: "Routine", cap: int, cwd: str,
+                       env: Dict[str, str]) -> Tuple[bool, str]:
+    """Ask a cheap script whether the expensive routine has anything to do.
+
+    A clean exit 1 is the only answer that cancels a run. Exit 0 means work
+    exists. A checker that is missing, cannot start, crashes, hangs past the cap
+    or answers with any other code FAILS OPEN and the routine runs.
+
+    That asymmetry is the whole rule. The worst a work check may ever do is save
+    a run that was going to do nothing; it may never be the reason a routine
+    that had work to do stayed silent. A checker is an optimisation, and an
+    optimisation does not get to overrule the schedule.
+    """
+    path = routine.work_check_path
+    try:
+        # stdout is the verdict channel, so it is swallowed; stderr is left
+        # alone, because a checker that is failing should be able to say so
+        # where the operator (or cron's mail) will actually see it.
+        with open(os.devnull, "w") as quiet:
+            code = subprocess.call([path], cwd=cwd, env=env, stdout=quiet,
+                                   stdin=subprocess.DEVNULL, timeout=cap)
+    except subprocess.TimeoutExpired:
+        sys.stderr.write("!!! work check for %s ran past %ds and was killed; "
+                         "running the routine anyway\n" % (routine.name, cap))
+        return False, "timed out"
+    except OSError as exc:
+        sys.stderr.write("!!! work check for %s could not start (%s); "
+                         "running the routine anyway\n" % (routine.name, exc))
+        return False, "could not start"
+    if code == NOTHING_TO_DO:
+        return True, "nothing to do"
+    return False, "exit %d" % code
+
+
 # ---------- run: the guard ----------
 
 def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
     routine = roster.get(args.name)
+    # Written after the name, the flag has already become part of the routine's
+    # own command. Silently cancelling a run the operator asked us to force is
+    # the worst outcome available, so say exactly what happened instead.
+    if args.command and "--ignore-work-check" in args.command:
+        raise FleetError("--ignore-work-check goes before `run`, not after the routine "
+                         "name: everything after the name is the routine's own command. "
+                         "Try: %s --ignore-work-check run %s" % (prog_name(), routine.name))
     now = args.now
     slot = routine.cron.previous_slot(now)
     if slot is None:
@@ -297,6 +365,19 @@ def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
                          % (routine.name, now.strftime(SLOT_FMT)))
     slot_id = slot.strftime(SLOT_FMT)
     stamp = now.isoformat(sep=" ", timespec="seconds")
+    env = dict(os.environ, FLEET_ROUTINE=routine.name, FLEET_SLOT=slot_id,
+               FLEET_RUNS=routine.runs_path)
+    # The work check runs BEFORE the slot is claimed, on purpose. A cancelled
+    # run did no work, so there is no twin to defend against; claiming the
+    # marker anyway would spend the slot on nothing and keep the routine from
+    # running later in that same slot if work turned up.
+    if routine.work_check_path and not args.ignore_work_check:
+        idle, why = work_check_is_idle(routine, roster.work_check_seconds,
+                                       roster.dir, env)
+        if idle:
+            state.append({"name": routine.name, "slot": slot_id, "event": "skipped",
+                          "at": stamp, "why": why, "check": routine.work_check})
+            return 0
     if not state.claim(routine.name, slot, stamp):
         state.append({"name": routine.name, "slot": slot_id, "event": "twin-refused",
                       "at": stamp})
@@ -307,8 +388,6 @@ def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
         return 3
     argv = args.command or routine.argv()
     state.append({"name": routine.name, "slot": slot_id, "event": "start", "at": stamp})
-    env = dict(os.environ, FLEET_ROUTINE=routine.name, FLEET_SLOT=slot_id,
-               FLEET_RUNS=routine.runs_path)
     try:
         code = subprocess.call(argv, cwd=roster.dir, env=env)
     except OSError as exc:
@@ -325,7 +404,8 @@ def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
 FLAGGED = ("MISSED", "FAILED", "INCOMPLETE", "ROTTED", "NO-SLOT")
 
 
-def assess(routine: Routine, now: datetime, by_slot: Dict[str, Dict[str, Any]], twins: int) -> Tuple[str, str]:
+def assess(routine: Routine, now: datetime, by_slot: Dict[str, Dict[str, Any]],
+           twins: int, skipped_since_run: int = 0) -> Tuple[str, str]:
     if not os.path.exists(routine.runs_path):
         return "ROTTED", "%s is missing" % routine.runs
     due = routine.cron.previous_slot(now - timedelta(minutes=routine.grace))
@@ -338,6 +418,12 @@ def assess(routine: Routine, now: datetime, by_slot: Dict[str, Dict[str, Any]], 
     record = by_slot.get(slot_id)
     if record is None:
         return "MISSED", detail + "  no run recorded"
+    if record["event"] == "skipped":
+        # Not a flag: the run was cancelled on purpose because there was nothing
+        # to do. The count is printed anyway. A routine that has had nothing to
+        # do for a long time is either saving its keep or quietly dead, and this
+        # tool exists because nobody notices the difference on their own.
+        return "SKIPPED", detail + "  nothing to do  [%d since the last run]" % skipped_since_run
     if record["event"] != "complete":
         return "INCOMPLETE", detail + "  started, never completed"
     if record.get("exit") != 0:
@@ -355,9 +441,19 @@ def cmd_report(args: argparse.Namespace, roster: Roster, state: State) -> int:
         for record in mine:
             if record["event"] in ("start", "complete"):
                 by_slot[record["slot"]] = record
+            elif record["event"] == "skipped":
+                # A real run always outranks a skip in the same slot: the check
+                # can fire and then the routine run later inside the same slot.
+                by_slot.setdefault(record["slot"], record)
         twins = sum(1 for r in mine if r["event"] == "twin-refused")
         twin_total += twins
-        status, detail = assess(routine, now, by_slot, twins)
+        skipped_since_run = 0
+        for record in reversed(mine):
+            if record["event"] == "skipped":
+                skipped_since_run += 1
+            elif record["event"] in ("start", "complete"):
+                break
+        status, detail = assess(routine, now, by_slot, twins, skipped_since_run)
         if status in FLAGGED:
             flagged += 1
         suffix = "  (watchdog, checked last)" if routine.name == roster.watchdog else ""
@@ -539,6 +635,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--roster", default="fleet.json", help="the canonical roster")
     parser.add_argument("--state", help="marker and run-log directory (default: <roster dir>/state)")
     parser.add_argument("--now", help="evaluate against this timestamp instead of the clock")
+    # Beside the other globals, not on `run`: `run <name> <command...>` takes the
+    # rest of the line as the routine's own command, so a flag written after the
+    # name would be handed to the routine instead of being read here.
+    parser.add_argument("--ignore-work-check", action="store_true",
+                        help="run the routine even if its work check says there is nothing to do")
     subparsers = parser.add_subparsers(dest="subcommand")
 
     subparsers.add_parser("validate", help="lint the roster")
