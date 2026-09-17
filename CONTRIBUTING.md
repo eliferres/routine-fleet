@@ -7,7 +7,7 @@ Welcome things:
 - New watchdog states, with the failure they catch named in one line.
 - Fixes to anything the README claims that turns out not to be true.
 
-Ground rules: `fleet.py` stays standard-library only and stays one file, the
+Ground rules: `routine_fleet.py` stays standard-library only and stays one file, the
 roster stays plain JSON, and every change keeps
 `python3 -m unittest discover -s tests` green. Tests use real rosters in temp
 directories and injected timestamps: no mocks, and nothing that needs cron

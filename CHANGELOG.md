@@ -6,7 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+- Renamed fleet.py to routine_fleet.py, so an install cannot shadow another package named `fleet`. Generated crontab lines now call routine_fleet.py; regenerate your block.
 
 ## [1.1.0](https://github.com/eliferres/routine-fleet/releases/tag/v1.1.0) - 2026-09-03
 

@@ -13,7 +13,7 @@ import unittest
 from contextlib import redirect_stdout, redirect_stderr
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import fleet  # noqa: E402
+import routine_fleet  # noqa: E402
 
 OK_COMMAND = ["/bin/sh", "-c", "exit 0"]
 FAIL_COMMAND = ["/bin/sh", "-c", "exit 4"]
@@ -60,7 +60,7 @@ class FleetCase(unittest.TestCase):
     def run_cli(self, *argv):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = fleet.main(list(argv))
+            code = routine_fleet.main(list(argv))
         return code, out.getvalue() + err.getvalue()
 
 
@@ -91,7 +91,7 @@ class TestGuard(FleetCase):
         code, _ = self.run_cli("--roster", roster, "--state", state,
                                "--now", "2026-03-02T08:05", "run", "brief")
         self.assertEqual(code, 4)
-        events = fleet.State(state).events()[0]
+        events = routine_fleet.State(state).events()[0]
         self.assertEqual([e["event"] for e in events], ["start", "complete"])
         self.assertEqual(events[1]["exit"], 4)
         self.assertEqual(events[1]["slot"], "2026-03-02T08:00")
@@ -188,9 +188,9 @@ class TestParity(FleetCase):
         roster = self.write_roster([entry("brief", "0 8 * * *"), entry("sweep", "0 2 * * *"),
                                     entry("audit", "0 6 * * 1")])
         live = self.crontab([
-            "0 8 * * * /opt/fleet/fleet.py run brief  # fleet:brief",
-            "0 3 * * * /opt/fleet/fleet.py run sweep  # fleet:sweep",
-            "0 5 * * * /opt/fleet/fleet.py run stray  # fleet:stray",
+            "0 8 * * * /opt/fleet/routine_fleet.py run brief  # fleet:brief",
+            "0 3 * * * /opt/fleet/routine_fleet.py run sweep  # fleet:sweep",
+            "0 5 * * * /opt/fleet/routine_fleet.py run stray  # fleet:stray",
             "15 4 * * 0 /usr/local/bin/backup.sh",
         ])
         code, output = self.run_cli("--roster", roster, "parity", "--source", live)
@@ -204,7 +204,7 @@ class TestParity(FleetCase):
         roster = self.write_roster([entry("brief", "0 8 * * *"), entry("audit", "0 6 * * 1")])
         out = io.StringIO()
         with redirect_stdout(out):
-            fleet.main(["--roster", roster, "crontab", "--install-dir", "/opt/fleet"])
+            routine_fleet.main(["--roster", roster, "crontab", "--install-dir", "/opt/fleet"])
         live = self.crontab(out.getvalue().splitlines())
         code, output = self.run_cli("--roster", roster, "parity", "--source", live)
         self.assertEqual(code, 0)

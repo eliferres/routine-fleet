@@ -21,9 +21,9 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Lint the shipped rosters
         run: |
-          python fleet.py --roster templates/fleet.json validate
-          python fleet.py --roster demo/fleet.json validate
+          python routine_fleet.py --roster templates/fleet.json validate
+          python routine_fleet.py --roster demo/fleet.json validate
       - name: The generated crontab block matches the template
         run: |
-          python fleet.py --roster templates/fleet.json crontab --install-dir /opt/fleet \
+          python routine_fleet.py --roster templates/fleet.json crontab --install-dir /opt/fleet \
             | diff -u templates/crontab.example -

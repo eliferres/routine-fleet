@@ -16,15 +16,15 @@ live scheduler against the roster. One Python file, standard library only.
 ```bash
 git clone https://github.com/eliferres/routine-fleet.git
 cd routine-fleet
-python3 fleet.py --roster demo/fleet.json validate    # zero dependencies, Python 3.9+
+python3 routine_fleet.py --roster demo/fleet.json validate    # zero dependencies, Python 3.9+
 ```
 
 That lints the shipped demo fleet. The [walkthrough](#walkthrough) below runs
 the whole pattern (guard, twin refusal, watchdog, parity) offline, from this
 fresh clone, in five commands.
 
-To adopt it: copy `templates/` next to `fleet.py`, replace the example routines
-with yours, then `python3 fleet.py crontab --install-dir /opt/fleet` and paste
+To adopt it: copy `templates/` next to `routine_fleet.py`, replace the example routines
+with yours, then `python3 routine_fleet.py crontab --install-dir /opt/fleet` and paste
 the block into your scheduler.
 
 ## The four pieces
@@ -35,14 +35,14 @@ from it: the crontab block is generated from it, the watchdog iterates it, the
 parity check diffs against it. A routine that is not in the roster does not
 exist. That is the whole point of having one.
 
-**A run guard the scheduler actually invokes.** Cron calls `fleet.py run
+**A run guard the scheduler actually invokes.** Cron calls `routine_fleet.py run
 <name>`, never the routine directly. The guard resolves which scheduled slot
 `now` belongs to, claims a marker file for that slot with an exclusive create,
 and refuses loudly if the slot is already claimed. Two schedulers racing the
 same minute cannot both win it. Start and completion (with the exit code) go
 to a run log.
 
-**A watchdog that checks the checkers.** `fleet.py report` reads only the roster
+**A watchdog that checks the checkers.** `routine_fleet.py report` reads only the roster
 and the run log. For each routine it finds the last slot that is past its grace
 window and asks whether that slot completed. Silence, non-zero exits, refused
 twins, and rot (a roster entry whose prompt file no longer exists) each get a
@@ -50,7 +50,7 @@ named line and a loud header. The watchdog is itself a roster entry, so its own
 silence shows up in its next report and in every parity check.
 
 **A parity check for fleets that must exist twice.** Two machines, two accounts,
-a staging box: `fleet.py parity` reads the live scheduler through an adapter
+a staging box: `routine_fleet.py parity` reads the live scheduler through an adapter
 (`crontab` or a generic `json` export) and prints exactly what is missing,
 extra, or drifted. Fleet-managed cron lines carry a `# fleet:<name>` tag, so
 other people's cron entries are left alone.
@@ -98,14 +98,14 @@ cp demo/state/run-log.jsonl "$FLEET_STATE/"
 **1. Lint the roster.**
 
 ```bash
-python3 fleet.py --roster demo/fleet.json validate
+python3 routine_fleet.py --roster demo/fleet.json validate
 # OK demo/fleet.json: roster is well formed.
 ```
 
 **2. Run a routine through the guard.**
 
 ```bash
-python3 fleet.py --roster demo/fleet.json --state "$FLEET_GUARD" \
+python3 routine_fleet.py --roster demo/fleet.json --state "$FLEET_GUARD" \
   --now 2026-03-02T08:05 run daily-standup-brief
 # [daily-standup-brief] slot 2026-03-02T08:00 — would execute .../daily-standup-brief.md
 ```
@@ -114,7 +114,7 @@ python3 fleet.py --roster demo/fleet.json --state "$FLEET_GUARD" \
 run the routine.
 
 ```bash
-python3 fleet.py --roster demo/fleet.json --state "$FLEET_GUARD" \
+python3 routine_fleet.py --roster demo/fleet.json --state "$FLEET_GUARD" \
   --now 2026-03-02T08:47 run daily-standup-brief
 # !!! TWIN REFUSED: daily-standup-brief already ran in slot 2026-03-02T08:00.
 #     Refusing to run it twice. Clear <marker path> to force a re-run.
@@ -123,7 +123,7 @@ python3 fleet.py --roster demo/fleet.json --state "$FLEET_GUARD" \
 **4. Run the watchdog.** Exits 1 whenever anything needs a human.
 
 ```bash
-python3 fleet.py --roster demo/fleet.json --state "$FLEET_STATE" \
+python3 routine_fleet.py --roster demo/fleet.json --state "$FLEET_STATE" \
   --now 2026-03-02T09:00 report
 ```
 
@@ -141,7 +141,7 @@ FLEET REPORT  2026-03-02 09:00  4 routines  roster fleet.json
 drifted three ways; the untagged backup job in it is correctly ignored.
 
 ```bash
-python3 fleet.py --roster demo/fleet.json parity \
+python3 routine_fleet.py --roster demo/fleet.json parity \
   --adapter crontab --source demo/crontab.example
 ```
 
@@ -160,11 +160,11 @@ Omit `--source` and the crontab adapter reads the live `crontab -l` instead.
 
 | Path | Role |
 |---|---|
-| `fleet.py` | The whole tool: `validate`, `run`, `report`, `parity`, `crontab`. |
+| `routine_fleet.py` | The whole tool: `validate`, `run`, `report`, `parity`, `crontab`. |
 | `templates/fleet.json` | The roster to copy and edit. |
 | `templates/routines/` | Prompt files written so their output is checkable. |
 | `templates/bin/run-prompt.sh` | One runner for the fleet; swap the body for your stack. |
-| `templates/crontab.example` | Generated by `fleet.py crontab`, tags and all. |
+| `templates/crontab.example` | Generated by `routine_fleet.py crontab`, tags and all. |
 | `demo/` | A four-routine fleet with canned history: healthy, silent, rotted. |
 | `tests/test_fleet.py` | Real rosters in temp dirs, injected timestamps, no mocks. |
 
@@ -204,7 +204,7 @@ belonged to, and only a slot identity makes "did this already run?" answerable.
 ## Limitations
 
 - The watchdog reads the log the guards write, so a routine invoked outside
-  `fleet.py run` is invisible to it. Bypassing the guard is the one failure this
+  `routine_fleet.py run` is invisible to it. Bypassing the guard is the one failure this
   pattern cannot see.
 - Cron expressions are evaluated for the previous expected slot only, not full
   history. A routine that missed four slots and then recovered reports `OK`.
