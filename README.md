@@ -35,10 +35,12 @@ fresh clone, in five commands.
 
 To adopt it: copy `templates/` next to `routine_fleet.py`, replace the example routines
 with yours, then `python3 routine_fleet.py crontab --install-dir /opt/fleet` and paste
-the block into your scheduler. The generated lines call
-`<install dir>/routine_fleet.py` when a clone or an `--install-dir` names a
-source file, and call `routine-fleet` itself when the installed command
-generates the block with no `--install-dir`.
+the block into your scheduler. The generated lines point at whatever will
+really be there: `<install dir>/routine_fleet.py` when you pass
+`--install-dir`, the clone's own `routine_fleet.py` when you generate the
+block from a clone, and the installed command's resolved path when
+`routine-fleet` generates it. Cron's PATH is minimal, so the line carries a
+path whenever one can be resolved.
 
 What a clone carries:
 
