@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 620" role="img" aria-labelledby="t d" font-family="SF Mono, Menlo, Consolas, monospace" font-size="20">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 800" role="img" aria-labelledby="t d" font-family="SF Mono, Menlo, Consolas, monospace" font-size="16">
   <title id="t">routine-fleet demo terminal</title>
-  <desc id="d">A terminal session: the run guard executes a routine once, refuses to run it twice in the same slot, and the watchdog report flags a missed run and a rotted routine whose prompt file is gone.</desc>
+  <desc id="d">A terminal session: the roster lints clean, the run guard executes a routine once and then refuses a twin in the same slot, the watchdog report flags a missed run and a rotted routine whose prompt file is gone, and the parity check names three drifts against the example crontab.</desc>
   <style>
     .p { fill: #7ee2a8; }
     .cmd { fill: #e8eef5; }
@@ -8,28 +8,37 @@
     .bad { fill: #ff9494; }
     .good { fill: #7ee2a8; }
   </style>
-  <rect width="660" height="620" rx="14" fill="#0b0f14"/>
+  <rect width="660" height="800" rx="14" fill="#0b0f14"/>
   <rect width="660" height="40" rx="14" fill="#11161d"/>
   <rect y="26" width="660" height="14" fill="#11161d"/>
   <circle cx="26" cy="20" r="6" fill="#ff5f57"/>
   <circle cx="48" cy="20" r="6" fill="#febc2e"/>
   <circle cx="70" cy="20" r="6" fill="#28c840"/>
   <text x="92" y="26" class="dim" font-size="14">routine-fleet</text>
-  <text x="24" y="80"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json --state \</tspan></text>
-  <text x="24" y="112" class="cmd">    &quot;$FLEET_GUARD&quot; --now 2026-03-02T08:05 run \</text>
-  <text x="24" y="144" class="cmd">    daily-standup-brief</text>
-  <text x="24" y="176" class="dim">[daily-standup-brief] slot 2026-03-02T08:00 — would execute…</text>
-  <text x="24" y="208"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json --state \</tspan></text>
-  <text x="24" y="240" class="cmd">    &quot;$FLEET_GUARD&quot; --now 2026-03-02T08:47 run \</text>
-  <text x="24" y="272" class="cmd">    daily-standup-brief</text>
-  <text x="24" y="304" class="bad">!!! TWIN REFUSED: daily-standup-brief already ran in slot 2…</text>
-  <text x="24" y="336" class="dim">    Refusing to run it twice. Clear /path/to/fleet-guard/ma…</text>
-  <text x="24" y="368"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json --state \</tspan></text>
-  <text x="24" y="400" class="cmd">    &quot;$FLEET_STATE&quot; --now 2026-03-02T09:00 report</text>
-  <text x="24" y="432" class="dim">FLEET REPORT  2026-03-02 09:00  4 routines  roster fleet.js…</text>
+  <text x="24" y="72"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json validate</tspan></text>
+  <text x="24" y="100" class="good">OK demo/fleet.json: roster is well formed.</text>
+  <text x="24" y="128"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json --state \</tspan></text>
+  <text x="24" y="156" class="cmd">    &quot;$FLEET_GUARD&quot; --now 2026-03-02T08:05 run \</text>
+  <text x="24" y="184" class="cmd">    daily-standup-brief</text>
+  <text x="24" y="212" class="dim">[daily-standup-brief] slot 2026-03-02T08:00 — would execute…</text>
+  <text x="24" y="240"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json --state \</tspan></text>
+  <text x="24" y="268" class="cmd">    &quot;$FLEET_GUARD&quot; --now 2026-03-02T08:47 run \</text>
+  <text x="24" y="296" class="cmd">    daily-standup-brief</text>
+  <text x="24" y="324" class="bad">!!! TWIN REFUSED: daily-standup-brief already ran in slot 2…</text>
+  <text x="24" y="352" class="dim">    Refusing to run it twice. Clear /path/to/fleet-guard/ma…</text>
+  <text x="24" y="380"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json --state \</tspan></text>
+  <text x="24" y="408" class="cmd">    &quot;$FLEET_STATE&quot; --now 2026-03-02T09:00 report</text>
+  <text x="24" y="436" class="dim">FLEET REPORT  2026-03-02 09:00  4 routines  roster fleet.js…</text>
   <text x="24" y="464" class="bad">!!! ATTENTION: 2 of 4 routines flagged</text>
-  <text x="24" y="496" class="good">  OK         daily-standup-brief      slot 2026-03-02 08:00</text>
-  <text x="24" y="528" class="bad">  MISSED     nightly-link-sweep       slot 2026-03-02 02:00…</text>
-  <text x="24" y="560" class="bad">  ROTTED     weekly-access-audit      routines/weekly-acces…</text>
-  <text x="24" y="592" class="good">  OK         fleet-watchdog           slot 2026-03-01 09:30…</text>
+  <text x="24" y="492" class="good">  OK         daily-standup-brief      slot 2026-03-02 08:00</text>
+  <text x="24" y="520" class="bad">  MISSED     nightly-link-sweep       slot 2026-03-02 02:00…</text>
+  <text x="24" y="548" class="bad">  ROTTED     weekly-access-audit      routines/weekly-acces…</text>
+  <text x="24" y="576" class="good">  OK         fleet-watchdog           slot 2026-03-01 09:30…</text>
+  <text x="24" y="604"><tspan class="p">$</tspan><tspan class="cmd" dx="8">python3 routine_fleet.py --roster demo/fleet.json parity \</tspan></text>
+  <text x="24" y="632" class="cmd">    --adapter crontab --source demo/crontab.example</text>
+  <text x="24" y="660" class="dim">PARITY  roster fleet.json  vs  crontab demo/crontab.example</text>
+  <text x="24" y="688" class="dim">!!! 3 difference(s)</text>
+  <text x="24" y="716" class="dim">  DRIFTED  nightly-link-sweep       roster &quot;0 2 * * *&quot;, sch…</text>
+  <text x="24" y="744" class="bad">  MISSING  weekly-access-audit      roster &quot;0 6 * * 1&quot;, not…</text>
+  <text x="24" y="772" class="dim">  EXTRA    legacy-cleanup           scheduler &quot;0 5 * * *&quot;,…</text>
 </svg>
