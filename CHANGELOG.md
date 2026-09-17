@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `run` with a state directory it cannot create now exits 2 with one line naming the directory and the cause, instead of failing later on a missing run-log file.
+- The demo transcript and picture show the real exit code of the refused twin (3, was recorded as 1) and a placeholder marker path instead of a real temp folder; a test now replays the transcript and fails if either drifts.
 - The README opener says each thing once; it had two paragraphs describing the same four parts.
 
 ## [1.1.0](https://github.com/eliferres/routine-fleet/releases/tag/v1.1.0) - 2026-09-03
