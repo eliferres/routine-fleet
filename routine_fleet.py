@@ -224,6 +224,15 @@ def validate_roster(raw: Any) -> List[str]:
 SLOT_FMT = "%Y-%m-%dT%H:%M"
 
 
+def _make_dirs(path: str) -> None:
+    # A permission failure here must stop the run with its real cause; left
+    # silent, it resurfaces later as a refused twin or a missing log file.
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as exc:
+        raise FleetError("Cannot create state directory %s: %s" % (path, exc.strerror or exc))
+
+
 class State(object):
     def __init__(self, directory: str) -> None:
         self.dir = os.path.abspath(directory)
@@ -237,10 +246,7 @@ class State(object):
         exclusive create is the whole twin defence: two schedulers racing the
         same minute cannot both win it."""
         path = self.marker_path(name, slot)
-        try:
-            os.makedirs(os.path.dirname(path))
-        except OSError:
-            pass
+        _make_dirs(os.path.dirname(path))
         try:
             handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         except OSError:
@@ -250,10 +256,7 @@ class State(object):
         return True
 
     def append(self, record: Dict[str, Any]) -> None:
-        try:
-            os.makedirs(self.dir)
-        except OSError:
-            pass
+        _make_dirs(self.dir)
         with open(self.log_path, "a") as log:
             log.write(json.dumps(record, sort_keys=True) + "\n")
 

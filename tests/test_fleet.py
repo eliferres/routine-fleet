@@ -96,6 +96,22 @@ class TestGuard(FleetCase):
         self.assertEqual(events[1]["exit"], 4)
         self.assertEqual(events[1]["slot"], "2026-03-02T08:00")
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "root writes through a read-only directory")
+    def test_state_dir_under_a_read_only_parent_is_an_io_error(self):
+        roster = self.write_roster([entry("brief", "0 8 * * *", OK_COMMAND)])
+        locked = os.path.join(self.root, "locked")
+        os.makedirs(locked)
+        os.chmod(locked, 0o555)
+        self.addCleanup(os.chmod, locked, 0o755)
+        state = os.path.join(locked, "state")
+        code, output = self.run_cli("--roster", roster, "--state", state,
+                                    "--now", "2026-03-02T08:05", "run", "brief")
+        self.assertEqual(code, 2)
+        self.assertEqual(len(output.splitlines()), 1, output)
+        self.assertIn("Cannot create state directory", output)
+        self.assertNotIn("TWIN REFUSED", output)
+
     def test_unknown_routine_is_refused(self):
         roster = self.write_roster([entry("brief", "0 8 * * *", OK_COMMAND)])
         code, output = self.run_cli("--roster", roster, "--now", "2026-03-02T08:05",
