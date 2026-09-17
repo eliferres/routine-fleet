@@ -98,35 +98,64 @@ class TestDemoTranscript(unittest.TestCase):
             for fragment in MACHINE_PATHS:
                 self.assertNotIn(fragment, entry["out"], entry["cmd"])
 
-    def test_every_picture_row_comes_from_the_transcript(self):
-        transcript = load_transcript()
-        commands = [entry["cmd"] for entry in transcript]
-        out_lines = [line for entry in transcript for line in entry["out"].splitlines()]
-        rows = ET.parse(PICTURE).getroot().findall(SVG + "text")[1:]  # [0] is the title bar
-        pending = []  # the chunks of a command wrapped across rows
-        for row in rows:
-            spans = row.findall(SVG + "tspan")
-            if spans:
-                pending = [spans[-1].text]
-            elif row.get("class") == "cmd":
-                self.assertTrue(pending and row.text.startswith("    "),
-                                "continuation row without a command: %r" % row.text)
-                pending.append(row.text[4:])
-            else:
-                text = row.text
-                for fragment in MACHINE_PATHS:
-                    self.assertNotIn(fragment, text)
-                if text.endswith(ELLIPSIS):
-                    text = text[:-1]
-                self.assertTrue(any(line.startswith(text) for line in out_lines),
-                                "picture row is not in the transcript: %r" % row.text)
+    def picture_rows(self):
+        """The drawing's content rows in order, as (kind, text). The window's
+        chrome label is the only text element carrying its own font-size, which
+        is how it is told apart: no y coordinate or row count is assumed."""
+        rows = []
+        for element in ET.parse(PICTURE).getroot().findall(SVG + "text"):
+            if element.get("font-size") is not None:
                 continue
-            if not pending[-1].endswith(" \\"):
-                joined = " ".join(chunk[:-2] if chunk.endswith(" \\") else chunk
-                                  for chunk in pending)
-                self.assertIn(joined, commands, "picture command is not in the transcript")
-                pending = []
-        self.assertEqual(pending, [], "picture ends inside a wrapped command")
+            spans = element.findall(SVG + "tspan")
+            if spans:
+                rows.append(("command", spans[-1].text))
+            elif element.get("class") == "cmd":
+                rows.append(("continuation", element.text))
+            else:
+                rows.append(("output", element.text))
+        return rows
+
+    def test_the_picture_replays_the_transcript_in_order(self):
+        """Whole entries, in transcript order, nothing dropped or reordered.
+        The drawing may run out of room, but only between commands."""
+        rows = self.picture_rows()
+        cursor = 0
+
+        def take(what):
+            self.assertLess(cursor, len(rows), "the picture stops inside %s" % what)
+            return rows[cursor]
+
+        for index, entry in enumerate(load_transcript(), start=1):
+            if cursor == len(rows):
+                break  # the box is full, and it filled up at a command boundary
+            where = "entry %d `%s`" % (index, entry["cmd"])
+            kind, text = take(where)
+            self.assertEqual("command", kind, "%s: expected a command row, got %r" % (where, text))
+            chunks = [text]
+            cursor += 1
+            while chunks[-1].endswith(" \\"):
+                kind, text = take("the wrapped command of " + where)
+                self.assertEqual("continuation", kind, "%s: expected a continuation row" % where)
+                self.assertTrue(text.startswith("    "),
+                                "%s: continuation row is not indented: %r" % (where, text))
+                chunks.append(text[4:])
+                cursor += 1
+            joined = " ".join(chunk[:-2] if chunk.endswith(" \\") else chunk for chunk in chunks)
+            self.assertEqual(entry["cmd"], joined, "%s: the picture shows a different command"
+                                                   % where)
+            for line in entry["out"].splitlines():
+                if not line.strip():
+                    continue  # the renderer drops blank output lines
+                kind, text = take("the output of " + where)
+                self.assertEqual("output", kind,
+                                 "%s: expected the output line %r, got a command row" % (where, line))
+                shown = text[:-1] if text.endswith(ELLIPSIS) else text
+                self.assertTrue(line == text or (line.startswith(shown) and len(shown) < len(line)),
+                                "%s: picture row %r is not the line %r" % (where, text, line))
+                cursor += 1
+        self.assertEqual(len(rows), cursor,
+                         "the picture has %d rows the transcript does not account for"
+                         % (len(rows) - cursor))
 
 
 if __name__ == "__main__":
