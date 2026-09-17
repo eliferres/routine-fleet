@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - CI tests on Python 3.9, 3.11 and 3.13 (was 3.12).
+- The README leads with Install, then what the tool checks, the walkthrough, and a new Exit codes table listing 0, 1, 2 and 3.
 - Renamed fleet.py to routine_fleet.py, so an install cannot shadow another package named `fleet`. Generated crontab lines now call routine_fleet.py; regenerate your block.
 
 ### Fixed
