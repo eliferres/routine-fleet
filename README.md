@@ -78,20 +78,24 @@ written for fired 29 times in a week, found an empty queue every one of those
 times, and paid the full price of starting a model on each. Now it pays for a
 script.
 
-**Exit 125, and only 125, means "nothing to do"** and cancels the run. Every
-other code runs the routine, as does a check that is missing, cannot start,
-hangs past `work_check_seconds`, or is killed by a signal. That asymmetry is the
-whole rule: the worst a work check may do is save a run that was going to do
-nothing. It may never be the reason a routine that had work to do stayed silent,
-because a broken optimisation that can silence a schedule is worse than no
-optimisation at all.
+**A check cancels a run by saying so.** It prints `nothing-to-do` and exits 0.
+Anything else runs the routine: any other output, no output, a non-zero exit, a
+check that is missing, cannot start, hangs past `work_check_seconds`, or is
+killed by a signal. That asymmetry is the whole rule. The worst a work check may
+do is save a run that was going to do nothing; it may never be the reason a
+routine that had work to do stayed silent, because a broken optimisation that
+can silence a schedule is worse than no optimisation at all.
 
-125 is deliberately not 1. An uncaught exception in Python or Node exits 1, and
-so does a shell check under `set -e` whose queue file has been renamed by an
-unrelated change. If 1 meant "nothing to do", the most common way for a check to
-break would be indistinguishable from the check working, and a dead routine
-would keep logging that it was idle. 125 is the code `git bisect` uses for
-"skip this one", and no runtime or shell produces it by accident.
+It is a word rather than an exit code on purpose, and that was learned the
+expensive way. Exit 1 is what an uncaught exception returns in Python and in
+Node, and what a shell check under `set -e` returns once its queue file has been
+renamed by some unrelated change. Exit 125 looked safe until you notice GNU
+`timeout` returns exactly that when the wrapper itself fails, and
+`timeout 30 ./probe.sh` is how a careful person writes a check. Every code
+plausible enough to choose is also a code something returns while failing, so
+any code-based signal is forgeable by an accident. A word is not: a crashed
+interpreter, a killed process, a missing file and an empty script all print
+nothing, and nothing is not this word.
 
 The check runs before the slot is claimed, so a cancelled run does not spend the
 slot: if work turns up twenty minutes later, that slot can still run. The
@@ -225,7 +229,7 @@ roster cannot quietly grow a field nothing reads:
       "command": ["bin/run-prompt.sh", "{path}"],  // optional; {path} = resolved runs
       "owner": "you@example.com",      // who gets called when this line goes red
       "grace_minutes": 120,            // optional per-routine override
-      "work_check": "checks/daily-brief.sh"  // optional; exit 125 = nothing to do, cancel
+      "work_check": "checks/daily-brief.sh"  // optional; prints nothing-to-do to cancel
     }
   ]
 }
@@ -238,8 +242,9 @@ executed the same way and gets the same three variables, so one script can
 answer for several routines. It must be executable and carry a shebang; its
 stdout is swallowed, because its exit code is the whole answer, and its stderr
 is left alone so a failing check can say so. `--ignore-work-check` runs a
-routine regardless, and goes before `run`, since everything after the routine
-name is the routine's own command.
+routine regardless. It goes before `run`, since everything after the routine
+name is the routine's own command; written after the name it stops and says so,
+and `-- ... --ignore-work-check` passes the literal flag to the routine.
 
 ## What the watchdog enforces
 
@@ -308,10 +313,13 @@ belonged to, and only a slot identity makes "did this already run?" answerable.
 - `SKIPPED` never turns the report red and never changes its exit code, so a
   check wrongly stuck on "nothing to do" will not page anyone. Only the printed
   count says so, and only if someone reads it.
-- A work check that itself exits 125 when it fails has defeated the whole
-  asymmetry. 125 is chosen to be hard to hit by accident, not impossible.
-- Refused twins go unseen on a skipped slot. The check runs before the slot is
-  claimed, so two schedulers firing into one idle slot both cancel quietly and
-  neither is recorded as a twin. A real run in that slot still refuses its twin.
+- A check that prints `nothing-to-do` and then fails, or prints it when it
+  meant something else, has defeated the whole asymmetry. Nothing can save a
+  check that lies; the design only rules out saying it by accident.
+- Refused twins go unseen whenever the check says idle. The check runs before
+  the slot is claimed, so a second firing that finds nothing to do cancels
+  quietly and is never recorded as a twin. That includes the ordinary case where
+  the first firing did the work and drained the queue: the twin is real, and
+  invisible. Only a second firing that still finds work is refused.
 
 MIT licensed, see LICENSE.

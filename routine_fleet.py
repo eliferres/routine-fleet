@@ -310,24 +310,28 @@ class State(object):
 
 # ---------- run: the work check ----------
 
-# The one exit code that means "nothing to do". It is deliberately NOT 1.
-# An uncaught exception in Python or Node exits 1, and so does a shell check
-# under `set -e` whose queue file has moved. If 1 meant "nothing to do", the
-# most common way for a check to break would be indistinguishable from the
-# check working, and the routine would be dead while the log said it was idle:
-# the exact silent rot this tool exists to catch. 125 is the code `git bisect`
-# uses for "skip this one". No runtime and no shell produces it by accident.
-NOTHING_TO_DO = 125
+# A check cancels a run by SAYING SO, not by returning a lucky number. It prints
+# this word and exits 0; anything else runs the routine.
+#
+# Exit codes were tried twice and are the wrong instrument. 1 is what an uncaught
+# exception returns in Python and Node, and what a shell check under `set -e`
+# returns when its queue file has been renamed. 125 is what GNU `timeout` returns
+# when the wrapper itself fails, and `timeout 30 ./probe.sh` is how a careful
+# person writes a check. Every code that is plausible to type is also a code
+# something returns while failing, so any code-based signal is forgeable by an
+# accident. A word is not: a crashed interpreter, a killed process, a missing
+# file and an empty script all print nothing, and nothing is not this word.
+IDLE_TOKEN = "nothing-to-do"
 
 
 def work_check_is_idle(routine: "Routine", cap: int, cwd: str,
                        env: Dict[str, str]) -> Tuple[bool, str]:
     """Ask a cheap script whether the expensive routine has anything to do.
 
-    Exit 125 is the only answer that cancels a run. Every other code, including
-    the 1 that a crashed interpreter returns, FAILS OPEN and the routine runs,
-    as does a check that is missing, cannot start, hangs past the cap, or is
-    killed by a signal.
+    A check cancels a run only by printing `nothing-to-do` and exiting 0.
+    Anything else FAILS OPEN and the routine runs: any other output, any
+    non-zero code, a check that is missing, cannot start, hangs past the cap, or
+    is killed by a signal.
 
     That asymmetry is the whole rule. The worst a work check may ever do is save
     a run that was going to do nothing; it may never be the reason a routine
@@ -336,12 +340,11 @@ def work_check_is_idle(routine: "Routine", cap: int, cwd: str,
     """
     path = routine.work_check_path
     try:
-        # stdout is the verdict channel, so it is swallowed; stderr is left
-        # alone, because a checker that is failing should be able to say so
-        # where the operator (or cron's mail) will actually see it.
-        with open(os.devnull, "w") as quiet:
-            code = subprocess.call([path], cwd=cwd, env=env, stdout=quiet,
-                                   stdin=subprocess.DEVNULL, timeout=cap)
+        # stdout is the verdict channel and is read, never passed through.
+        # stderr is left alone, because a check that is failing should be able to
+        # say so where the operator (or cron's mail) will actually see it.
+        done = subprocess.run([path], cwd=cwd, env=env, stdout=subprocess.PIPE,
+                              stdin=subprocess.DEVNULL, timeout=cap)
     except subprocess.TimeoutExpired:
         sys.stderr.write("!!! work check for %s ran past %ds and was killed; "
                          "running the routine anyway\n" % (routine.name, cap))
@@ -350,26 +353,23 @@ def work_check_is_idle(routine: "Routine", cap: int, cwd: str,
         sys.stderr.write("!!! work check for %s could not start (%s); "
                          "running the routine anyway\n" % (routine.name, exc))
         return False, "could not start"
-    if code == NOTHING_TO_DO:
+    said = (done.stdout or b"").decode("utf-8", "replace").strip()
+    if done.returncode == 0 and said == IDLE_TOKEN:
         return True, "nothing to do"
-    return False, "exit %d" % code
-
+    if done.returncode != 0:
+        # Not an error here, but worth a line: a check failing this way every
+        # time means the routine is running as it always did and the check has
+        # quietly stopped saving anything.
+        sys.stderr.write("!!! work check for %s exited %d instead of saying `%s`; "
+                         "running the routine anyway\n"
+                         % (routine.name, done.returncode, IDLE_TOKEN))
+    return False, "exit %d" % done.returncode
 
 
 # ---------- run: the guard ----------
 
 def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
     routine = roster.get(args.name)
-    # A command that is nothing but this flag is a misplacement, not a command:
-    # after the routine name it has already become the routine's own argv, and
-    # silently cancelling a run the operator asked to force is the worst outcome
-    # available. Anything longer is left alone, so `-- prog --ignore-work-check`
-    # still reaches the routine, and a routine with no work check is not our
-    # business at all.
-    if routine.work_check_path and args.command == ["--ignore-work-check"]:
-        raise FleetError("--ignore-work-check goes before `run`, not after the routine "
-                         "name: everything after the name is the routine's own command. "
-                         "Try: %s --ignore-work-check run %s" % (prog_name(), routine.name))
     now = args.now
     slot = routine.cron.previous_slot(now)
     if slot is None:
@@ -417,7 +417,7 @@ FLAGGED = ("MISSED", "FAILED", "INCOMPLETE", "ROTTED", "NO-SLOT")
 
 
 def assess(routine: Routine, now: datetime, by_slot: Dict[str, Dict[str, Any]],
-           twins: int, skipped_since_run: int = 0) -> Tuple[str, str]:
+           twins: int, skipped_since_run: int) -> Tuple[str, str]:
     if not os.path.exists(routine.runs_path):
         return "ROTTED", "%s is missing" % routine.runs
     due = routine.cron.previous_slot(now - timedelta(minutes=routine.grace))
@@ -689,8 +689,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.subcommand:
         parser.print_help()
         return 2
-    if getattr(args, "command", None) and args.command[0] == "--":
-        args.command = args.command[1:]
+    command = getattr(args, "command", None)
+    if command:
+        if command[0] == "--":
+            # An explicit `--` means the operator meant every following word for
+            # the routine, whatever those words are.
+            args.command = command[1:]
+        elif command[0] == "--ignore-work-check":
+            # It has already become the routine's own argv. Running the routine
+            # with a flag as its command, or cancelling a run the operator asked
+            # to force, are both worse than saying where the flag goes.
+            sys.stderr.write(
+                "%s: --ignore-work-check goes before `run`, not after the routine name: "
+                "everything after the name is the routine's own command.\n"
+                "    Try: %s --ignore-work-check run %s\n"
+                "    To pass it to the routine anyway: %s run %s -- ... "
+                "--ignore-work-check\n"
+                % (prog_name(), prog_name(), args.name, prog_name(), args.name))
+            return 2
     try:
         args.now = parse_now(args.now)
         # validate must run against an unparsed roster: that is the whole point of it.

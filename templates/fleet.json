@@ -9,7 +9,8 @@
       "schedule": "30 7 * * *",
       "runs": "routines/daily-brief.md",
       "command": ["bin/run-prompt.sh", "{path}"],
-      "owner": "you@example.com"
+      "owner": "you@example.com",
+      "work_check": "checks/daily-brief.sh"
     },
     {
       "name": "weekly-audit",
