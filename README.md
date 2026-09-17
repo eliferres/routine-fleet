@@ -155,17 +155,21 @@ Omit `--source` and the crontab adapter reads the live `crontab -l` instead.
 
 ## Exit codes
 
-Every subcommand exits with one of four codes, so cron and CI can act on the
-result without reading the output:
+`validate`, `report`, `parity` and `crontab` exit with one of these, so cron
+and CI can act on the result without reading the output:
 
 | Code | Meaning |
 |---|---|
-| 0 | Clean: the roster is well formed, every routine is healthy, parity is in sync, or the routine ran and exited 0. |
+| 0 | Clean: the roster is well formed, every routine is healthy, or parity is in sync. |
 | 1 | Problems found: `validate`, `report` or `parity` has something for a human. |
 | 2 | Usage or IO error: a bad flag, an unreadable roster, a state directory that cannot be created. |
-| 3 | Twin refused: `run` found the slot already claimed and did not run the routine. |
 
-`run` otherwise exits with the routine's own exit code.
+`run` is the exception. It exits 3 when the slot is already claimed and the
+twin is refused, 2 on a usage or IO error of its own, and otherwise passes the
+routine's exit code straight through: a routine that exits 7 makes `run` exit
+7, and a healthy run exits 0 because the routine did. A routine that cannot be
+started at all is reported on stderr and exits 127, the shell's code for that,
+which is the one code `run` invents rather than passes on.
 
 ## Roster format
 

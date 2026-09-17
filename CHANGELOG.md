@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Renamed fleet.py to routine_fleet.py, so an install cannot shadow another package named `fleet`. Generated crontab lines now call routine_fleet.py; regenerate your block.
 
 ### Fixed
+- The documented exit codes now match the tool: `run` passes the routine's own exit code through, and reports 127 when the routine cannot be started.
 - `crontab` run as the installed command with no `--install-dir` now schedules `routine-fleet` itself, instead of a source file an installed user does not have; a clone or an `--install-dir` still names `routine_fleet.py`.
 - Error lines now start with the name the tool was invoked as (`routine-fleet` installed, `routine_fleet.py` from a clone) instead of the old `fleet` name.
 - `run` with a state directory it cannot create now exits 2 with one line naming the directory and the cause, instead of failing later on a missing run-log file.

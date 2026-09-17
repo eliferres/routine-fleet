@@ -7,7 +7,9 @@ the run log and says, per routine, whether the last due slot actually happened.
 Parity diffs the live scheduler against the roster.
 
 Subcommands: validate, run, report, parity, crontab. Zero dependencies.
-Exit codes: 0 clean, 1 problems found, 2 usage/IO error, 3 twin refused.
+Exit codes: 0 clean, 1 problems found, 2 usage/IO error. `run` exits 3 when it
+refuses a twin, 127 when the routine cannot be started, and otherwise passes the
+routine's own exit code through.
 """
 __version__ = "1.1.0"
 
