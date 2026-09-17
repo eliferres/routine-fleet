@@ -109,7 +109,8 @@ class TestGuard(FleetCase):
                                     "--now", "2026-03-02T08:05", "run", "brief")
         self.assertEqual(code, 2)
         self.assertEqual(len(output.splitlines()), 1, output)
-        self.assertIn("Cannot create state directory", output)
+        self.assertIn("Cannot create marker directory", output)
+        self.assertIn(os.path.join(state, "markers", "brief"), output)
         self.assertNotIn("TWIN REFUSED", output)
 
     def test_unknown_routine_is_refused(self):
