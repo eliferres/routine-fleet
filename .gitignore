@@ -7,3 +7,8 @@ __pycache__/
 /state/
 templates/state/
 demo/state/markers/
+
+# Packaging output.
+build/
+dist/
+*.egg-info/
