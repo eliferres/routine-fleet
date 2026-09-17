@@ -13,10 +13,20 @@ live scheduler against the roster. One Python file, standard library only.
 
 ## Quick start
 
+Install the `routine-fleet` command (from GitHub; it is not on PyPI):
+
+```bash
+pipx install git+https://github.com/eliferres/routine-fleet
+routine-fleet --version
+```
+
+Or work from a clone, which carries the demo fleet the walkthrough uses:
+
 ```bash
 git clone https://github.com/eliferres/routine-fleet.git
 cd routine-fleet
 python3 routine_fleet.py --roster demo/fleet.json validate    # zero dependencies, Python 3.9+
+routine-fleet --roster demo/fleet.json validate               # the same, installed
 ```
 
 That lints the shipped demo fleet. The [walkthrough](#walkthrough) below runs

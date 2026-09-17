@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+- Installable with `pipx install git+https://github.com/eliferres/routine-fleet`, which puts a `routine-fleet` command on your PATH; `routine-fleet --version` prints the version.
+
 ### Changed
 - Renamed fleet.py to routine_fleet.py, so an install cannot shadow another package named `fleet`. Generated crontab lines now call routine_fleet.py; regenerate your block.
 

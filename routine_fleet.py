@@ -9,6 +9,8 @@ Parity diffs the live scheduler against the roster.
 Subcommands: validate, run, report, parity, crontab. Zero dependencies.
 Exit codes: 0 clean, 1 problems found, 2 usage/IO error, 3 twin refused.
 """
+__version__ = "1.1.0"
+
 import argparse
 import json
 import os
@@ -509,6 +511,7 @@ def parse_now(raw: Optional[str]) -> datetime:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--version", action="version", version="routine-fleet " + __version__)
     parser.add_argument("--roster", default="fleet.json", help="the canonical roster")
     parser.add_argument("--state", help="marker and run-log directory (default: <roster dir>/state)")
     parser.add_argument("--now", help="evaluate against this timestamp instead of the clock")
