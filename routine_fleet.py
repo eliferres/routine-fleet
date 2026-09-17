@@ -512,6 +512,12 @@ def parse_now(raw: Optional[str]) -> datetime:
     raise FleetError("Expected `--now` as YYYY-MM-DDTHH:MM, got `%s`" % raw)
 
 
+def prog_name() -> str:
+    """What the operator typed: the console script when installed, the file name
+    when run out of a clone. Errors answer as that, never as a fixed name."""
+    return os.path.basename(sys.argv[0]) or "routine-fleet"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--version", action="version", version="routine-fleet " + __version__)
@@ -559,10 +565,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             os.path.dirname(os.path.abspath(args.roster)), "state")
         return HANDLERS[args.subcommand](args, roster, State(state_dir))
     except FleetError as exc:
-        sys.stderr.write("fleet: %s\n" % exc)
+        sys.stderr.write("%s: %s\n" % (prog_name(), exc))
         return 2
     except (IOError, ValueError) as exc:
-        sys.stderr.write("fleet: %s\n" % exc)
+        sys.stderr.write("%s: %s\n" % (prog_name(), exc))
         return 2
 
 
