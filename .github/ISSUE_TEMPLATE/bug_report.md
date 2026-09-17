@@ -8,5 +8,5 @@ labels: bug
 
 **What the README or the walkthrough says should happen**
 
-**Steps to reproduce** (OS, Python version, the exact `fleet.py` command, and
+**Steps to reproduce** (OS, Python version, the exact `routine_fleet.py` command, and
 the roster entry involved)

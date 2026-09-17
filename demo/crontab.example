@@ -2,9 +2,9 @@
 # tooling and parity ignores them.
 MAILTO=""
 
-0 8 * * * /opt/fleet/fleet.py --roster /opt/fleet/fleet.json run daily-standup-brief  # fleet:daily-standup-brief
-0 3 * * * /opt/fleet/fleet.py --roster /opt/fleet/fleet.json run nightly-link-sweep  # fleet:nightly-link-sweep
-0 5 * * * /opt/fleet/fleet.py --roster /opt/fleet/fleet.json run legacy-cleanup  # fleet:legacy-cleanup
-30 9 * * * /opt/fleet/fleet.py --roster /opt/fleet/fleet.json run fleet-watchdog  # fleet:fleet-watchdog
+0 8 * * * /opt/fleet/routine_fleet.py --roster /opt/fleet/fleet.json run daily-standup-brief  # fleet:daily-standup-brief
+0 3 * * * /opt/fleet/routine_fleet.py --roster /opt/fleet/fleet.json run nightly-link-sweep  # fleet:nightly-link-sweep
+0 5 * * * /opt/fleet/routine_fleet.py --roster /opt/fleet/fleet.json run legacy-cleanup  # fleet:legacy-cleanup
+30 9 * * * /opt/fleet/routine_fleet.py --roster /opt/fleet/fleet.json run fleet-watchdog  # fleet:fleet-watchdog
 
 15 4 * * 0 /usr/local/bin/backup-db.sh
