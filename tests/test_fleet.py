@@ -120,6 +120,28 @@ class TestGuard(FleetCase):
         self.assertIn("not in the roster", output)
 
 
+class TestErrorPrefix(FleetCase):
+    """Errors answer as whatever the operator typed, installed command or file."""
+
+    def error_line(self, argv0):
+        original = sys.argv[0]
+        sys.argv[0] = argv0
+        try:
+            code, output = self.run_cli("--roster", os.path.join(self.root, "absent.json"),
+                                        "report")
+        finally:
+            sys.argv[0] = original
+        self.assertEqual(code, 2)
+        return output.strip()
+
+    def test_installed_command_names_itself(self):
+        self.assertTrue(self.error_line("/opt/homebrew/bin/routine-fleet")
+                        .startswith("routine-fleet: "))
+
+    def test_run_from_a_clone_names_the_file(self):
+        self.assertTrue(self.error_line("./routine_fleet.py").startswith("routine_fleet.py: "))
+
+
 class TestWatchdog(FleetCase):
     def test_silence_is_flagged(self):
         roster = self.write_roster([entry("sweep", "0 2 * * *", OK_COMMAND)])

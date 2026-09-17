@@ -15,6 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Renamed fleet.py to routine_fleet.py, so an install cannot shadow another package named `fleet`. Generated crontab lines now call routine_fleet.py; regenerate your block.
 
 ### Fixed
+- Error lines now start with the name the tool was invoked as (`routine-fleet` installed, `routine_fleet.py` from a clone) instead of the old `fleet` name.
 - `run` with a state directory it cannot create now exits 2 with one line naming the directory and the cause, instead of failing later on a missing run-log file.
 - The demo transcript and picture show the real exit code of the refused twin (3, was recorded as 1) and a placeholder marker path instead of a real temp folder; a test now replays the transcript and fails if either drifts.
 - The README opener says each thing once; it had two paragraphs describing the same four parts.
