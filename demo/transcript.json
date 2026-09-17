@@ -6,8 +6,8 @@
   },
   {
     "cmd": "python3 routine_fleet.py --roster demo/fleet.json --state \"$FLEET_GUARD\" --now 2026-03-02T08:47 run daily-standup-brief",
-    "out": "!!! TWIN REFUSED: daily-standup-brief already ran in slot 2026-03-02T08:00.\n    Refusing to run it twice. Clear /var/folders/tc/mmzcz8wx4456lf0ld34kpn3r0000gn/T/tmppd8exa1a/markers/daily-standup-brief/2026-03-02T08:00.marker to force a re-run.",
-    "status": 1
+    "out": "!!! TWIN REFUSED: daily-standup-brief already ran in slot 2026-03-02T08:00.\n    Refusing to run it twice. Clear /path/to/fleet-guard/markers/daily-standup-brief/2026-03-02T08:00.marker to force a re-run.",
+    "status": 3
   },
   {
     "cmd": "python3 routine_fleet.py --roster demo/fleet.json --state \"$FLEET_STATE\" --now 2026-03-02T09:00 report",
