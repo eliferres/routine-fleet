@@ -1,5 +1,10 @@
 [
   {
+    "cmd": "python3 routine_fleet.py --roster demo/fleet.json validate",
+    "out": "OK demo/fleet.json: roster is well formed.",
+    "status": 0
+  },
+  {
     "cmd": "python3 routine_fleet.py --roster demo/fleet.json --state \"$FLEET_GUARD\" --now 2026-03-02T08:05 run daily-standup-brief",
     "out": "[daily-standup-brief] slot 2026-03-02T08:00 — would execute /path/to/checkout/demo/routines/daily-standup-brief.md",
     "status": 0
@@ -12,6 +17,11 @@
   {
     "cmd": "python3 routine_fleet.py --roster demo/fleet.json --state \"$FLEET_STATE\" --now 2026-03-02T09:00 report",
     "out": "FLEET REPORT  2026-03-02 09:00  4 routines  roster fleet.json\n!!! ATTENTION: 2 of 4 routines flagged\n\n  OK         daily-standup-brief      slot 2026-03-02 08:00\n  MISSED     nightly-link-sweep       slot 2026-03-02 02:00  no run recorded\n  ROTTED     weekly-access-audit      routines/weekly-access-audit.md is missing\n  OK         fleet-watchdog           slot 2026-03-01 09:30  (watchdog, checked last)",
+    "status": 1
+  },
+  {
+    "cmd": "python3 routine_fleet.py --roster demo/fleet.json parity --adapter crontab --source demo/crontab.example",
+    "out": "PARITY  roster fleet.json  vs  crontab demo/crontab.example\n!!! 3 difference(s)\n\n  DRIFTED  nightly-link-sweep       roster \"0 2 * * *\", scheduler \"0 3 * * *\"\n  MISSING  weekly-access-audit      roster \"0 6 * * 1\", not scheduled here\n  EXTRA    legacy-cleanup           scheduler \"0 5 * * *\", not in the roster",
     "status": 1
   }
 ]

@@ -9,7 +9,7 @@ against the roster. One Python file, standard library only.
 
 ![ci](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)
 
-<img src="demo/terminal.svg" width="660" alt="Terminal session showing routine-fleet refusing to run a routine twice in the same slot, then the watchdog report flagging a missed run and a rotted routine.">
+<img src="demo/terminal.svg" width="660" alt="Terminal session showing routine-fleet linting the roster, running a routine, refusing to run it twice in the same slot, then the watchdog report flagging a missed run and a rotted routine, and the parity check naming three drifts.">
 
 ## Install
 
