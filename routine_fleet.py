@@ -34,12 +34,18 @@ DEFAULT_GRACE_MINUTES = 30
 # away. A roster can raise or lower it with `work_check_seconds`; there is no
 # upper bound, because the operator who writes the roster is the one waiting.
 DEFAULT_WORK_CHECK_SECONDS = 5
+# How late a run may start and still count as its slot's run. A scheduler that
+# fires on time starts within seconds; a busy or slow machine adds minutes. A
+# firing hours late is a scheduler catching up on a slot the machine slept
+# through, and that is refused. Two hours sits well clear of the first and well
+# short of the second. `replay_window_minutes` changes it; 0 turns it off.
+DEFAULT_REPLAY_WINDOW_MINUTES = 120
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 CRON_TAG_RE = re.compile(r"#\s*fleet:([^\s#]+)\s*$")
 ROUTINE_KEYS = {"name", "schedule", "runs", "owner", "command", "grace_minutes",
-                "work_check"}
+                "work_check", "replay_window_minutes"}
 ROSTER_KEYS = {"version", "timezone", "grace_minutes", "watchdog", "routines",
-               "work_check_seconds"}
+               "work_check_seconds", "replay_window_minutes"}
 CRON_FIELDS = (("minute", 0, 59), ("hour", 0, 23), ("day-of-month", 1, 31),
                ("month", 1, 12), ("day-of-week", 0, 7))
 
@@ -132,7 +138,8 @@ class Cron(object):
 # ---------- roster ----------
 
 class Routine(object):
-    def __init__(self, entry: Dict[str, Any], roster_dir: str, default_grace: int) -> None:
+    def __init__(self, entry: Dict[str, Any], roster_dir: str, default_grace: int,
+                 default_replay_window: int) -> None:
         self.name = entry["name"]
         self.schedule = entry["schedule"]
         self.cron = Cron(self.schedule)
@@ -141,6 +148,7 @@ class Routine(object):
         self.runs_path = os.path.join(roster_dir, self.runs)
         self.command = entry.get("command")
         self.grace = entry.get("grace_minutes", default_grace)
+        self.replay_window = entry.get("replay_window_minutes", default_replay_window)
         self.work_check = entry.get("work_check")
         self.work_check_path = (os.path.join(roster_dir, self.work_check)
                                 if self.work_check else None)
@@ -169,7 +177,8 @@ class Roster(object):
         self.watchdog = raw.get("watchdog")
         grace = raw.get("grace_minutes", DEFAULT_GRACE_MINUTES)
         self.work_check_seconds = raw.get("work_check_seconds", DEFAULT_WORK_CHECK_SECONDS)
-        self.routines = [Routine(e, self.dir, grace) for e in raw["routines"]]
+        replay_window = raw.get("replay_window_minutes", DEFAULT_REPLAY_WINDOW_MINUTES)
+        self.routines = [Routine(e, self.dir, grace, replay_window) for e in raw["routines"]]
 
     def get(self, name: str) -> "Routine":
         for routine in self.routines:
@@ -183,6 +192,11 @@ class Roster(object):
         body = [r for r in self.routines if r.name != self.watchdog]
         tail = [r for r in self.routines if r.name == self.watchdog]
         return body + tail
+
+
+def _is_minutes(value: Any) -> bool:
+    # bool is an int subclass in Python; `true` in a roster is not a duration.
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def validate_roster(raw: Any) -> List[str]:
@@ -225,10 +239,9 @@ def validate_roster(raw: Any) -> List[str]:
         if command is not None and (not isinstance(command, list) or not command
                                     or not all(isinstance(a, str) for a in command)):
             problems.append("%s: `command` must be a non-empty list of strings" % where)
-        grace = entry.get("grace_minutes")
-        if grace is not None and (not isinstance(grace, int) or isinstance(grace, bool)
-                                  or grace < 0):
-            problems.append("%s: `grace_minutes` must be a non-negative integer" % where)
+        for key in ("grace_minutes", "replay_window_minutes"):
+            if not _is_minutes(entry.get(key, 0)):
+                problems.append("%s: `%s` must be a non-negative integer" % (where, key))
         work_check = entry.get("work_check")
         if work_check is not None and (not isinstance(work_check, str)
                                        or not work_check.strip()):
@@ -237,6 +250,8 @@ def validate_roster(raw: Any) -> List[str]:
     if seconds is not None and (not isinstance(seconds, int) or isinstance(seconds, bool)
                                 or seconds < 1):
         problems.append("roster: `work_check_seconds` must be a positive integer")
+    if not _is_minutes(raw.get("replay_window_minutes", 0)):
+        problems.append("roster: `replay_window_minutes` must be a non-negative integer")
     watchdog = raw.get("watchdog")
     if watchdog is not None and watchdog not in seen:
         problems.append("roster: `watchdog` names `%s`, which is not a routine" % watchdog)
@@ -379,6 +394,19 @@ def cmd_run(args: argparse.Namespace, roster: Roster, state: State) -> int:
     stamp = now.isoformat(sep=" ", timespec="seconds")
     env = dict(os.environ, FLEET_ROUTINE=routine.name, FLEET_SLOT=slot_id,
                FLEET_RUNS=routine.runs_path)
+    # Lateness is judged first: a run that will be refused should neither pay
+    # for its work check nor spend its slot. The slot stays unclaimed and
+    # unrun, so the watchdog still reports it as missed, which it was.
+    late = int((now - slot).total_seconds() // 60)
+    if routine.replay_window and late > routine.replay_window and not args.allow_late:
+        state.append({"name": routine.name, "slot": slot_id, "event": "late-refused",
+                      "at": stamp, "late_minutes": late})
+        sys.stderr.write(
+            "!!! LATE RUN REFUSED: %s is %dh%02dm past its slot %s, outside its %d-minute\n"
+            "    replay window. A firing this late is a scheduler catching up on a slot it\n"
+            "    missed. The next slot runs normally; pass --allow-late to run it anyway.\n"
+            % (routine.name, late // 60, late % 60, slot_id, routine.replay_window))
+        return 3
     # The work check runs BEFORE the slot is claimed, on purpose. A cancelled
     # run did no work, so there is no twin to defend against; claiming the
     # marker anyway would spend the slot on nothing and keep the routine from
@@ -655,6 +683,8 @@ def build_parser() -> argparse.ArgumentParser:
     # name would be handed to the routine instead of being read here.
     parser.add_argument("--ignore-work-check", action="store_true",
                         help="run the routine even if its work check says there is nothing to do")
+    parser.add_argument("--allow-late", action="store_true",
+                        help="run the routine even if it is past its slot's replay window")
     subparsers = parser.add_subparsers(dest="subcommand")
 
     subparsers.add_parser("validate", help="lint the roster")
@@ -662,7 +692,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser(
         "run", help="run one routine through the guard",
         description="Run one routine through the guard. Everything after NAME is the "
-                    "routine's own command, so --ignore-work-check goes before `run`.")
+                    "routine's own command, so --ignore-work-check and --allow-late go before `run`.")
     run.add_argument("name")
     run.add_argument("command", nargs=argparse.REMAINDER,
                      help="optional `-- argv` overriding the roster command")
@@ -678,6 +708,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="where routine_fleet.py and the roster live on the scheduling machine")
     return parser
 
+
+# Global flags that change what `run` does. Written after the routine name they
+# would silently become the routine's own argv, so `main` catches them there.
+RUN_OVERRIDES = ("--ignore-work-check", "--allow-late")
 
 HANDLERS = {"validate": cmd_validate, "run": cmd_run, "report": cmd_report,
             "parity": cmd_parity, "crontab": cmd_crontab}
@@ -695,17 +729,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             # An explicit `--` means the operator meant every following word for
             # the routine, whatever those words are.
             args.command = command[1:]
-        elif command[0] == "--ignore-work-check":
+        elif command[0] in RUN_OVERRIDES:
             # It has already become the routine's own argv. Running the routine
-            # with a flag as its command, or cancelling a run the operator asked
+            # with a flag as its command, or refusing a run the operator asked
             # to force, are both worse than saying where the flag goes.
+            flag = command[0]
             sys.stderr.write(
-                "%s: --ignore-work-check goes before `run`, not after the routine name: "
+                "%s: %s goes before `run`, not after the routine name: "
                 "everything after the name is the routine's own command.\n"
-                "    Try: %s --ignore-work-check run %s\n"
-                "    To pass it to the routine anyway: %s run %s -- ... "
-                "--ignore-work-check\n"
-                % (prog_name(), prog_name(), args.name, prog_name(), args.name))
+                "    Try: %s %s run %s\n"
+                "    To pass it to the routine anyway: %s run %s -- ... %s\n"
+                % (prog_name(), flag, prog_name(), flag, args.name,
+                   prog_name(), args.name, flag))
             return 2
     try:
         args.now = parse_now(args.now)

@@ -102,6 +102,19 @@ slot: if work turns up twenty minutes later, that slot can still run. The
 cancellation is written to the run log, and the watchdog reads it as `SKIPPED`
 rather than the missed run it would otherwise report.
 
+**A late firing is refused, not replayed.** Some schedulers run a slot they
+missed as soon as they get the chance: a laptop waking from sleep, or an app
+reopening after it was closed over the weekend. On the fleet this was written
+for, that meant weekday-only routines firing on Saturday night, and a Sunday
+replay of a missed weekly slot. The guard measures how far past its slot each
+run starts and refuses one past `replay_window_minutes` (default 120), before
+the work check and without claiming the slot. The refusal goes to the run log,
+and the watchdog still reports the slot as `MISSED`, because it was. The next
+slot runs normally. Two hours is far past any delay an on-time scheduler
+produces and far short of the hours a sleeping machine accumulates; tighten it
+for an hourly routine, or set it to 0 to turn the rule off. `--allow-late` runs
+a deliberate catch-up.
+
 **A watchdog that checks the checkers.** `routine_fleet.py report` reads only the roster
 and the run log. For each routine it finds the last slot that is past its grace
 window and asks whether that slot completed. Silence, non-zero exits, refused
@@ -202,8 +215,8 @@ and CI can act on the result without reading the output:
 A run cancelled by its work check exits 0: nothing went wrong, and there was
 nothing to do.
 
-`run` is the exception. It exits 3 when the slot is already claimed and the
-twin is refused, 2 on a usage or IO error of its own, and otherwise passes the
+`run` is the exception. It exits 3 when the guard refuses the run, because
+the slot is already claimed by a twin or the firing is past its replay window, 2 on a usage or IO error of its own, and otherwise passes the
 routine's exit code straight through: a routine that exits 7 makes `run` exit
 7, and a healthy run exits 0 because the routine did. A routine that cannot be
 started at all is reported on stderr and exits 127, the shell's code for that,
@@ -221,6 +234,7 @@ roster cannot quietly grow a field nothing reads:
   "grace_minutes": 30,        // fleet-wide default before a late slot is "missed"
   "watchdog": "fleet-watchdog",  // the routine that runs `report`; checked last
   "work_check_seconds": 5,    // hard cap on any work check; past it, the routine runs
+  "replay_window_minutes": 120,  // a run starting later than this after its slot is refused; 0 = off
   "routines": [
     {
       "name": "daily-brief",           // [a-z0-9][a-z0-9._-]*, unique in the fleet
@@ -229,7 +243,8 @@ roster cannot quietly grow a field nothing reads:
       "command": ["bin/run-prompt.sh", "{path}"],  // optional; {path} = resolved runs
       "owner": "you@example.com",      // who gets called when this line goes red
       "grace_minutes": 120,            // optional per-routine override
-      "work_check": "checks/daily-brief.sh"  // optional; prints nothing-to-do to cancel
+      "work_check": "checks/daily-brief.sh",  // optional; prints nothing-to-do to cancel
+      "replay_window_minutes": 30      // optional per-routine override
     }
   ]
 }
@@ -245,6 +260,8 @@ is left alone so a failing check can say so. `--ignore-work-check` runs a
 routine regardless. It goes before `run`, since everything after the routine
 name is the routine's own command; written after the name it stops and says so,
 and `-- ... --ignore-work-check` passes the literal flag to the routine.
+`--allow-late` runs a routine past its replay window and follows the same
+placement rule.
 
 ## What the watchdog enforces
 

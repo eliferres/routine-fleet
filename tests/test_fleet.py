@@ -642,6 +642,105 @@ class TestWorkCheck(FleetCase):
             self.assertEqual(handle.read(), "brief 2026-03-02T08:00")
 
 
+class TestReplay(FleetCase):
+    """A firing long after its slot is a scheduler catching up on a slot it
+    slept through, not the schedule. The guard refuses it and the watchdog
+    still reports the slot as missed."""
+
+    def setUp(self):
+        super(TestReplay, self).setUp()
+        self.target = os.path.join(self.root, "ran")
+        self.state = os.path.join(self.root, "state")
+
+    def build(self, **extra):
+        top = extra.pop("top", {})
+        command = ["/bin/sh", "-c", "touch %s" % self.target]
+        return self.write_roster([entry("brief", "0 8 * * *", command, **extra)], **top)
+
+    def invoke(self, roster, now, *flags):
+        return self.run_cli("--roster", roster, "--state", self.state,
+                            "--now", now, *(flags + ("run", "brief")))
+
+    def test_a_run_inside_the_window_runs(self):
+        code, _ = self.invoke(self.build(), "2026-03-02T09:59")
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(self.target))
+
+    def test_a_run_hours_past_its_slot_is_refused(self):
+        code, output = self.invoke(self.build(), "2026-03-02T14:00")
+        self.assertEqual(code, 3)
+        self.assertIn("LATE RUN REFUSED", output)
+        self.assertIn("6h00m past its slot 2026-03-02T08:00", output)
+        self.assertFalse(os.path.exists(self.target))
+
+    def test_the_default_window_is_two_hours(self):
+        roster = self.build()
+        self.assertEqual(self.invoke(roster, "2026-03-02T10:01")[0], 3)
+        self.assertEqual(routine_fleet.DEFAULT_REPLAY_WINDOW_MINUTES, 120)
+
+    def test_a_refused_replay_does_not_spend_the_slot(self):
+        roster = self.build()
+        self.invoke(roster, "2026-03-02T14:00")
+        self.assertFalse(os.path.exists(
+            routine_fleet.State(self.state).marker_path(
+                "brief", routine_fleet.parse_now("2026-03-02T08:00"))))
+
+    def test_the_refusal_is_logged_and_the_slot_still_reads_missed(self):
+        roster = self.build()
+        self.invoke(roster, "2026-03-02T14:00")
+        events = routine_fleet.State(self.state).events()[0]
+        self.assertEqual([e["event"] for e in events], ["late-refused"])
+        self.assertEqual(events[0]["late_minutes"], 360)
+        code, output = self.run_cli("--roster", roster, "--state", self.state,
+                                    "--now", "2026-03-02T15:00", "report")
+        self.assertIn("MISSED", output)
+        self.assertEqual(code, 1)
+
+    def test_the_refusal_comes_before_the_work_check(self):
+        """A run that will be refused must not pay for its check first."""
+        probe = os.path.join(self.root, "checked")
+        check = self.write_check("brief.sh", "touch %s; echo nothing-to-do" % probe)
+        code, _ = self.invoke(self.build(work_check=check), "2026-03-02T14:00")
+        self.assertEqual(code, 3)
+        self.assertFalse(os.path.exists(probe))
+
+    def test_the_window_is_set_per_roster_and_per_routine(self):
+        roster = self.build(top={"replay_window_minutes": 480})
+        self.assertEqual(self.invoke(roster, "2026-03-02T14:00")[0], 0)
+        os.remove(self.target)
+        roster = self.build(replay_window_minutes=30, top={"replay_window_minutes": 480})
+        self.assertEqual(self.invoke(roster, "2026-03-03T08:31")[0], 3)
+
+    def test_a_window_of_zero_turns_the_rule_off(self):
+        roster = self.build(replay_window_minutes=0)
+        self.assertEqual(self.invoke(roster, "2026-03-02T23:00")[0], 0)
+
+    def test_allow_late_runs_a_deliberate_catch_up(self):
+        code, _ = self.invoke(self.build(), "2026-03-02T14:00", "--allow-late")
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(self.target))
+
+    def test_allow_late_after_the_name_is_named_not_swallowed(self):
+        code, output = self.run_cli("--roster", self.build(), "--state", self.state,
+                                    "--now", "2026-03-02T14:00",
+                                    "run", "brief", "--allow-late")
+        self.assertEqual(code, 2)
+        self.assertIn("--allow-late goes before `run`", output)
+        self.assertFalse(os.path.exists(self.target))
+
+    def test_a_bad_window_is_rejected(self):
+        for bad in (-1, 5.5, "60", True):
+            roster = self.write_roster([entry("brief", "0 8 * * *",
+                                              replay_window_minutes=bad)],
+                                       replay_window_minutes=bad)
+            code, output = self.run_cli("--roster", roster, "validate")
+            self.assertEqual(code, 1, "accepted replay_window_minutes=%r" % bad)
+            self.assertIn("roster: `replay_window_minutes` must be a non-negative integer",
+                          output)
+            self.assertIn("routines[0]: `replay_window_minutes` must be a non-negative "
+                          "integer", output)
+
+
 class TestWorkCheckInTheReport(FleetCase):
     def roster_with_skip(self, records, **top):
         roster = self.write_roster([entry("brief", "0 8 * * *")], **top)

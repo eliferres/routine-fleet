@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Work checks: a routine can name a `work_check` script that answers "anything to do?" before the run. A check cancels the run by printing `nothing-to-do` and exiting 0, at the cost of the script; anything else fails open and runs the routine, including a crashed interpreter's exit 1, GNU `timeout`'s own 125, an empty script's silent 0, and any other output. `work_check_seconds` (default 5) caps how long a check may take, and `--ignore-work-check` overrides it for one run.
 - `SKIPPED` in the watchdog report for a run its work check cancelled, with the number of slots skipped since the routine last really ran. The count is printed, not alerted on: `SKIPPED` does not flag the report or change its exit code.
+- Late runs are refused: a run starting more than `replay_window_minutes` (default 120) after its slot is a scheduler catching up on a slot it missed, so `run` exits 3 without running it and the watchdog still reports the slot as `MISSED`. Set the window per roster or per routine, 0 turns the rule off, and `--allow-late` runs a deliberate catch-up.
 - Installable with `pipx install git+https://github.com/eliferres/routine-fleet`, which puts a `routine-fleet` command on your PATH; `routine-fleet --version` prints the version.
 
 ### Changed
