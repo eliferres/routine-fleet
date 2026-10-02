@@ -117,6 +117,9 @@ slot runs normally. Two hours is far past any delay an on-time scheduler
 produces and far short of the hours a sleeping machine accumulates; tighten it
 for an hourly routine, or set it to 0 to turn the rule off. `--allow-late` runs
 a deliberate catch-up.
+Keep the window at or above `grace_minutes`: with a grace of 240 and the
+default window, a run between two and four hours late is refused while the
+watchdog still holds the slot open, and the slot then reads `MISSED`.
 
 **A watchdog that checks the checkers.** `routine_fleet.py report` reads only the roster
 and the run log. For each routine it finds the last slot that is past its grace
