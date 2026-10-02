@@ -7,6 +7,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -425,6 +426,43 @@ class TestShippedExamples(FleetCase):
         self.assertIn("MISSED     nightly-link-sweep", output)
         self.assertIn("ROTTED     weekly-access-audit", output)
 
+
+
+class TestShippedWorkCheck(FleetCase):
+    """The template check is what a copied setup runs on day one. It may only
+    say `nothing-to-do` when it has seen an empty queue; a queue it cannot see
+    must run the routine, or a fresh copy skips every run forever."""
+
+    SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "templates", "checks", "daily-brief.sh")
+
+    def verdict(self):
+        done = subprocess.run([self.SCRIPT], cwd=self.root, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL,
+                              env=dict(os.environ, FLEET_QUEUE="inbox"))
+        return done.returncode, done.stdout.decode().strip()
+
+    def test_an_empty_queue_says_nothing_to_do(self):
+        os.makedirs(os.path.join(self.root, "inbox"))
+        self.assertEqual(self.verdict(), (0, "nothing-to-do"))
+
+    def test_a_queue_with_a_job_runs(self):
+        os.makedirs(os.path.join(self.root, "inbox"))
+        open(os.path.join(self.root, "inbox", "job"), "w").close()
+        self.assertEqual(self.verdict(), (0, ""))
+
+    def test_a_missing_queue_runs(self):
+        self.assertEqual(self.verdict(), (0, ""))
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "root reads through any permission")
+    def test_an_unreadable_queue_runs(self):
+        inbox = os.path.join(self.root, "inbox")
+        os.makedirs(inbox)
+        open(os.path.join(inbox, "job"), "w").close()
+        os.chmod(inbox, 0)
+        self.addCleanup(os.chmod, inbox, 0o755)
+        self.assertEqual(self.verdict(), (0, ""))
 
 
 class TestWorkCheck(FleetCase):

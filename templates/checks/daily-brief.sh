@@ -11,7 +11,10 @@ set -u
 
 QUEUE="${FLEET_QUEUE:-inbox}"
 
-if [ ! -d "$QUEUE" ] || [ -z "$(ls -A "$QUEUE" 2>/dev/null)" ]; then
+# Cancel only on a queue this script has seen and found empty. A missing,
+# renamed or unreadable folder says nothing, so the routine runs: an empty
+# answer from a check that could not look would skip every run forever.
+if [ -d "$QUEUE" ] && listing=$(ls -A "$QUEUE") && [ -z "$listing" ]; then
   echo nothing-to-do
 fi
 exit 0
