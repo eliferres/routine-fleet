@@ -258,8 +258,8 @@ With no `command`, the guard executes `runs` directly. Every run gets
 `FLEET_SLOT` doubles as an idempotency key downstream. A `work_check` is
 executed the same way and gets the same three variables, so one script can
 answer for several routines. It must be executable and carry a shebang; its
-stdout is swallowed, because its exit code is the whole answer, and its stderr
-is left alone so a failing check can say so. `--ignore-work-check` runs a
+stdout is read as the verdict and never shown, and its stderr is left alone so
+a failing check can say so. `--ignore-work-check` runs a
 routine regardless. It goes before `run`, since everything after the routine
 name is the routine's own command; written after the name it stops and says so,
 and `-- ... --ignore-work-check` passes the literal flag to the routine.
