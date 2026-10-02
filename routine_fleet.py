@@ -7,12 +7,13 @@ the run log and says, per routine, whether the last due slot actually happened.
 Parity diffs the live scheduler against the roster.
 
 A routine may name a cheap work check, which answers "anything to do?" before
-the expensive run. Only exit 125 cancels; every other code fails open.
+the expensive run. Only `nothing-to-do` on stdout with exit 0 cancels; anything
+else fails open and the routine runs.
 
 Subcommands: validate, run, report, parity, crontab. Zero dependencies.
 Exit codes: 0 clean, 1 problems found, 2 usage/IO error. `run` exits 3 when it
-refuses a twin, 127 when the routine cannot be started, and otherwise passes the
-routine's own exit code through.
+refuses a twin or a run past its replay window, 127 when the routine cannot be
+started, and otherwise passes the routine's own exit code through.
 """
 __version__ = "1.2.0"
 
