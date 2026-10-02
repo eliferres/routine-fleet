@@ -7,7 +7,10 @@ refuses a second run in the same slot, a watchdog says per routine whether the
 last due slot actually happened, and a parity check diffs the live scheduler
 against the roster. One Python file, standard library only.
 
-![ci](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
+![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)
 
 <img src="demo/terminal.svg" width="660" alt="Terminal session showing routine-fleet linting the roster, running a routine, refusing to run it twice in the same slot, then the watchdog report flagging a missed run and a rotted routine, and the parity check naming three drifts.">
 
