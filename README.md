@@ -1,11 +1,6 @@
 # routine-fleet
 
-Scheduled AI routines rot silently: one stops firing and nobody notices for
-weeks, another fires twice and double-writes a report. routine-fleet is the
-smallest honest fix. One roster file is the source of truth, a run guard
-refuses a second run in the same slot, a watchdog says per routine whether the
-last due slot actually happened, and a parity check diffs the live scheduler
-against the roster. One Python file, standard library only.
+routine-fleet refuses a second run of a scheduled AI routine in the same slot and tells you when one stops firing. One Python file, standard library only.
 
 [![CI](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -13,6 +8,15 @@ against the roster. One Python file, standard library only.
 ![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)
 
 <img src="demo/terminal.svg" width="660" alt="Terminal session showing routine-fleet linting the roster, running a routine, refusing to run it twice in the same slot, then the watchdog report flagging a missed run and a rotted routine, and the parity check naming three drifts.">
+
+## What it does
+
+Scheduled AI routines rot silently: one stops firing and nobody notices for
+weeks, another fires twice and double-writes a report. routine-fleet is the
+smallest honest fix. One roster file is the source of truth, a run guard
+refuses a second run in the same slot, a watchdog says per routine whether the
+last due slot actually happened, and a parity check diffs the live scheduler
+against the roster.
 
 ## Install
 
