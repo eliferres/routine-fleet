@@ -2,12 +2,14 @@
 
 routine-fleet refuses a second run of a scheduled AI routine in the same slot and tells you when one stops firing. One Python file, standard library only.
 
-[![CI](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
-![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)
+[![ci](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml/badge.svg)](https://github.com/eliferres/routine-fleet/actions/workflows/ci.yml)
+![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)
+![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)
 
 <img src="demo/terminal.svg" width="660" alt="Terminal session showing routine-fleet linting the roster, running a routine, refusing to run it twice in the same slot, then the watchdog report flagging a missed run and a rotted routine, and the parity check naming three drifts.">
+
+The [fde-agent-skills](https://github.com/eliferres/fde-agent-skills) library documents the working methods behind this tool and its sibling tools as agent skills.
 
 ## What it does
 
